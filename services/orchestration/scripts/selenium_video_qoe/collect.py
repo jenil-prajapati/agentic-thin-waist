@@ -455,6 +455,49 @@ def add_google_meet_interval_metrics(
     current["freeze_duration_delta_seconds"] = delta("total_freezes_duration_seconds")
 
 
+FORCE_MAX_QUALITY_JS = """
+const p = document.getElementById('movie_player')
+       || document.querySelector('.html5-video-player');
+if (!p) { return {ok: false, reason: 'no_player_element'}; }
+const out = {ok: true, levels: null, range_applied: false, single_applied: false};
+try { out.levels = p.getAvailableQualityLevels ? p.getAvailableQualityLevels() : null; }
+catch (e) { out.levels_error = String(e); }
+try {
+    if (p.setPlaybackQualityRange) {
+        p.setPlaybackQualityRange(arguments[0], arguments[0]);
+        out.range_applied = true;
+    }
+} catch (e) { out.range_error = String(e); }
+if (!out.range_applied) {
+    try {
+        if (p.setPlaybackQuality) { p.setPlaybackQuality(arguments[0]); out.single_applied = true; }
+    } catch (e) { out.single_error = String(e); }
+}
+try { out.quality_after = p.getPlaybackQuality ? p.getPlaybackQuality() : null; }
+catch (e) { out.quality_after_error = String(e); }
+return out;
+"""
+
+
+def force_youtube_max_quality(
+    driver, app: str, level: str = "hd2160"
+) -> dict[str, Any]:
+    """Ask YouTube's player to pin the highest rendition instead of ABR auto.
+
+    `setPlaybackQualityRange` is undocumented and silently ignores levels the
+    source does not carry, so this is best-effort by construction: it reports
+    what it managed to do and never raises into the run. The available-level
+    list is captured too — without it a 480p result is ambiguous between "ABR
+    chose low" and "the source has nothing higher".
+    """
+    try:
+        result = driver.execute_script(FORCE_MAX_QUALITY_JS, level)
+    except Exception as exc:  # the page may not expose the player API at all
+        result = {"ok": False, "reason": f"{type(exc).__name__}: {exc}"}
+    print(f"[{app}] force_max_quality({level}) -> {result}")
+    return result if isinstance(result, dict) else {"ok": False, "reason": "bad_result"}
+
+
 def run_job(
     job: dict[str, Any],
     launch_lock: threading.Lock,
@@ -474,6 +517,10 @@ def run_job(
     guest_name = str(job.get("guest_name", "NetGent QoE Collector"))
     meet_join_timeout_seconds = float(job.get("join_timeout_seconds", 180))
     barrier_timeout_seconds = float(job.get("barrier_timeout_seconds", 360))
+    # Opt-in: pin YouTube's rendition instead of letting ABR pick. Off by
+    # default, so every existing payload behaves exactly as before.
+    force_max_quality = bool(job.get("force_max_quality", False))
+    force_quality_level = str(job.get("force_quality_level", "hd2160"))
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     print(f"[{app}] starting Xvfb+fluxbox on :{display_num}")
@@ -505,6 +552,7 @@ def run_job(
     play_trigger_ts: float | None = None
     meet_ready_stats: dict[str, Any] | None = None
     meet_ready_timestamp: float | None = None
+    force_quality_result: dict[str, Any] | None = None
     try:
         if is_webrtc:
             install_webrtc_hook(driver)
@@ -527,6 +575,13 @@ def run_job(
                 guest_name,
             )
             meet_ready_timestamp = time.time()
+
+        # Pin the rendition after the player exists but before the synchronized
+        # start, so the whole sampled window runs at the forced quality.
+        if force_max_quality and not is_webrtc and app == "youtube":
+            force_quality_result = force_youtube_max_quality(
+                driver, app, force_quality_level
+            )
 
         print(f"[{app}] ready; waiting for all applications before sampling")
         sampling_barrier.wait(timeout=barrier_timeout_seconds)
@@ -564,6 +619,11 @@ def run_job(
                         "kind": kind,
                         "url": video_url,
                         "play_trigger_ts": play_trigger_ts,
+                        "force_max_quality": force_max_quality,
+                        "force_quality_level": (
+                            force_quality_level if force_max_quality else None
+                        ),
+                        "force_quality_result": force_quality_result,
                     }
                 )
                 + "\n"

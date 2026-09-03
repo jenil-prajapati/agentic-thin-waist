@@ -8,6 +8,19 @@ Everything here is native to this repo. Clone it, bring the stack up, build one
 image, open the notebook — no sibling checkouts, no environment variables to
 point at other repositories.
 
+> ### Two things that are not optional
+>
+> **1. Runs must be generated on the Linux VM, not on your laptop.** The
+> collector joins the substrate worker's `ns1` network namespace, which exists
+> only where the stack runs. Off-host you get network numbers from an *unshaped*
+> link and no player QoE at all. Edit and read results anywhere; *generate* them
+> on the VM. See [Running remotely](#running-remotely-and-what-breaks).
+>
+> **2. You must build `video-qoe-collector:latest` (step 2).** It is not
+> optional and not pulled automatically — **without it the notebook measures no
+> player QoE whatsoever**: every app reports `status: skipped` and you are left
+> with throughput only.
+
 ---
 
 ## What a run actually does
@@ -60,16 +73,38 @@ curl -s localhost:8004/health   # telemetry
 `substrate-worker` runs privileged (it needs `tc`/`netem` and `tshark`) and
 creates the `ns1` / `ns2` namespaces on startup.
 
-## 2. Build the QoE collector image (once)
+## 2. Build the QoE collector image (MANDATORY, once)
 
 ```bash
 docker build -t video-qoe-collector:latest \
   services/orchestration/scripts/selenium_video_qoe/
 ```
 
+**Do not skip this.** The image is never pulled for you, and nothing else
+provides player-side QoE. Without it every browser app is reported as
+`skipped` and the notebook produces throughput only — no resolution, no
+startup time, no rebuffers.
+
 This installs real `google-chrome-stable` plus Xvfb, fluxbox, SeleniumBase and
 undetected-chromedriver. Takes a few minutes and ~1.9 GB. Override the name with
 `PRAMANA_COLLECTOR_IMAGE` if you tag it differently.
+
+**Budget ~4 GB of free disk for the build**, not 2 GB: while it runs, the host
+holds the old image, the compressed layers and the extracted snapshot at once.
+A build that dies with `no space left on device` while exporting the Chrome
+layer leaves a broken, unusable image — remove it and retry with more room:
+
+```bash
+docker rmi -f video-qoe-collector:latest   # only if a build failed midway
+docker builder prune -af
+```
+
+Verify the image really carries the collector before running anything:
+
+```bash
+docker run --rm --entrypoint sh video-qoe-collector:latest \
+  -c 'google-chrome --version && python3 -c "import seleniumbase, selenium"'
+```
 
 ## 3. Install the notebook dependencies
 
@@ -127,6 +162,97 @@ construction. Supply a channel that is actually streaming via
 
 ---
 
+## Forced quality (opt-in, YouTube only)
+
+By default YouTube picks its own rendition with adaptive bitrate, and it is
+conservative: measured here, it sits at **480p at 6, 10 and 50 Mbps alike** and
+never asks for more than ~7.7 Mbps even on a 50 Mbps link. To measure what the
+*link* can carry rather than what ABR chooses, pin the rendition:
+
+```python
+cfg = ExperimentConfig(
+    apps=["youtube"],
+    bandwidth_mbps=50, latency_ms=50,
+    duration_s=120,
+    force_max_quality=True,        # default False — nothing else changes
+)
+```
+
+`force_max_quality` is **off by default**; leaving it unset reproduces the
+original behaviour exactly. When on, the collector calls YouTube's
+`setPlaybackQualityRange('hd2160','hd2160')` (falling back to
+`setPlaybackQuality`) after the player loads and before sampling starts. The API
+is undocumented and silently ignores levels a source does not carry, so the call
+is best-effort: it never raises, and it records what it managed to do —
+including `getAvailableQualityLevels()` — in `collector.log` and in the meta
+line of `qoe/<app>_stats.jsonl`. That list is what tells you whether a low
+result means "ABR chose low" or "the source has nothing higher".
+
+Forced runs are self-identifying: `record.json` carries `force_max_quality:
+true`, and the run directory gets a **`_forcedq`** slug suffix so forced and
+auto runs can never be pooled or compared by accident.
+
+Pinning quality does not make resolution climb with bandwidth — it pins 2160p at
+every tier. What changes with bandwidth is whether that resolution can be
+*delivered*: in the reference runs the watched fraction goes 12% → 33% → 78% →
+84% across 6 → 10 → 25 → 50 Mbps, while startup falls from 17.7 s to 1.1 s.
+
+`force_max_quality` requires the collector image to have been built from the
+current `collect.py`. If you built it earlier, rebuild it (step 2) — otherwise
+the flag is recorded but does nothing.
+
+---
+
+## Validating output
+
+Every run should be checked before it is used as a result. The validator is
+**read-only** — it never edits a run:
+
+```bash
+python3 experiments/pramana/validate_runs.py            # defaults to results/pramana_runs
+python3 experiments/pramana/validate_runs.py <dir> -v   # another tree, verbose
+```
+
+It prints one row per run (`PASS` / `FAIL:<rules>` / `WARN:<rules>`), then the
+offending value against the expected bound for every failure. Exit status is 1
+if anything failed, so it can gate a pipeline.
+
+Hard rules (a `FAIL` is a contradiction inside the run): shaping under cap,
+label-vs-player honesty, played-but-watched-zero, no-playback logic, bitrate
+sanity, artifacts present, capture duration. Soft rules (`WARN`): resolution
+falling as bandwidth rises, record bytes diverging from the pcap, duplicate
+configs, and an intentionally omitted capture.
+
+**Repairing an old dataset.** Records written before the flag fix carry
+`per_app_stats[app].player_qoe_available: false` even when real player metrics
+exist. `backfill_player_flag.py` rewrites that one field to agree with the
+payload and touches nothing else:
+
+```bash
+python3 experiments/pramana/backfill_player_flag.py            # dry run
+python3 experiments/pramana/backfill_player_flag.py --index --apply
+```
+
+---
+
+## Reference runs shipped in this repo
+
+`results/pramana_runs/` contains a small set of **reference example runs** — the
+newest run per configuration that passes every hard validator rule, plus the
+forced-quality sweep. They exist so you can see the output format and run the
+validator before generating anything yourself.
+
+They ship **without their captures**. A pcap is 65–300 MB and GitHub rejects any
+file over 100 MB, so each shipped run carries a `PCAP_OMITTED.md` marker and the
+validator reports a `PCAP_OMITTED` *warning* rather than a failure. The
+`record.json` still says `pcap_saved: true`, because the run genuinely did save
+one on the VM — the marker explains the absence instead of falsifying the
+record. Everything else in those directories is the unmodified original.
+
+Your own runs land in the same tree and are gitignored.
+
+---
+
 ## Where results land
 
 ```
@@ -139,11 +265,17 @@ experiments/pramana/results/pramana_runs/<slug>_<id>/
 └── collector.log             browser driver output
 ```
 
-Plus `results/pramana_runs/dataset_index.jsonl` — every run, one JSON per line.
+`record.json` also carries `force_max_quality` (true/false), so a run always says
+whether YouTube's rendition was pinned or left to ABR.
 
-This whole tree is **gitignored**. Captures are large and are evidence, not source.
-Override the location with `PRAMANA_RESULTS_DIR=/mnt/big-disk` if the VM's root
-volume is tight.
+Plus `results/pramana_runs/dataset_index.jsonl` — every run, one JSON per line.
+It is written on the VM as runs accumulate and is not shipped in the repo.
+
+Your runs are **gitignored** (captures are large, and they are evidence, not
+source); the handful of committed reference runs described above are the only
+exception. Override the location with `PRAMANA_RESULTS_DIR=/mnt/big-disk` if the
+VM's root volume is tight — each 60 s run costs 40–70 MB, and a 120 s forced-4K
+run costs 100–300 MB.
 
 ### Pulling results to your laptop
 
@@ -172,8 +304,17 @@ python3 experiments/pramana/build_summary.py ./pramana_results
 | `PRAMANA_DOCKER` | `docker` | docker binary |
 | `PRAMANA_RESULTS_DIR` | `experiments/pramana/results` | where runs are written |
 | `PRAMANA_COLLECT` | `1` | set `0` to skip the browser collector |
+| `PRAMANA_COLLECTOR_SRC` | unset | dev override: bind-mount a host `collect.py` into the image instead of rebuilding it |
 
 No code edits are needed to run against a different host — only these.
+
+`PRAMANA_COLLECTOR_SRC` exists for iterating on the collector when the host has
+no room to rebuild a ~2 GB image. It is a development shortcut, not the
+supported path: build the image (step 2) so behaviour is baked in.
+
+Per-experiment settings live on `ExperimentConfig` rather than the environment —
+notably `force_max_quality` (default `False`) and `force_quality_level` (default
+`hd2160`); see [Forced quality](#forced-quality-opt-in-youtube-only).
 
 ---
 

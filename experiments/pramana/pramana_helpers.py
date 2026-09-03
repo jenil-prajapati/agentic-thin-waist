@@ -62,6 +62,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import textwrap
 import sys
 import time
 import uuid
@@ -80,6 +81,7 @@ except Exception:  # pragma: no cover
 try:
     from IPython.display import display
 except Exception:  # pragma: no cover
+
     def display(obj: Any) -> None:
         print(obj)
 
@@ -119,20 +121,20 @@ TELEMETRY = os.environ.get("PRAMANA_TELEMETRY_URL", "http://localhost:8004")
 ORCH = os.environ.get("PRAMANA_ORCH_URL", "http://localhost:8005")
 
 # Substrate topology (deployed local_docker profile).
-DOWNSTREAM_IFACE = "veth2"   # shaped bottleneck (download) — capture HERE
-UPSTREAM_IFACE = "veth4"     # upload / egress
-NETGENT_NAMESPACE = "ns1"    # namespace the workflow runs in
+DOWNSTREAM_IFACE = "veth2"  # shaped bottleneck (download) — capture HERE
+UPSTREAM_IFACE = "veth4"  # upload / egress
+NETGENT_NAMESPACE = "ns1"  # namespace the workflow runs in
 
 # Local dataset + plots. Defaults to `results/` beside this file (gitignored);
 # override with PRAMANA_RESULTS_DIR to write somewhere else (e.g. a big disk).
-RESULTS_ROOT = Path(
-    os.environ.get("PRAMANA_RESULTS_DIR", str(HERE / "results"))
-) / "pramana_runs"
+RESULTS_ROOT = (
+    Path(os.environ.get("PRAMANA_RESULTS_DIR", str(HERE / "results"))) / "pramana_runs"
+)
 DATASET_INDEX = RESULTS_ROOT / "dataset_index.jsonl"
 
 # Correctness thresholds.
-SHAPING_TOLERANCE = 0.15   # measured avg throughput must be within +15% of cap
-STRICT_SHAPING = True      # raise on shaping-verification failure
+SHAPING_TOLERANCE = 0.15  # measured avg throughput must be within +15% of cap
+STRICT_SHAPING = True  # raise on shaping-verification failure
 
 # Capture timing: the pcap is downloaded over HTTP, which needs the capture to be
 # "finished". We give tshark a duration = run time + this overhead so it stops on
@@ -165,7 +167,9 @@ def shared_repo_status() -> str:
 
 
 # ── Real-QoE collector (PR #167 browser driver, registry-driven) ────────────
-COLLECTOR_IMAGE = os.environ.get("PRAMANA_COLLECTOR_IMAGE", "video-qoe-collector:latest")
+COLLECTOR_IMAGE = os.environ.get(
+    "PRAMANA_COLLECTOR_IMAGE", "video-qoe-collector:latest"
+)
 SUBSTRATE_CONTAINER = os.environ.get("PRAMANA_SUBSTRATE_CONTAINER", "substrate-worker")
 DOCKER_BIN = os.environ.get("PRAMANA_DOCKER", "docker")
 # The collector must run INSIDE ns1 or its traffic is not shaped. Display numbers
@@ -183,13 +187,21 @@ COLLECT_ENABLED = os.environ.get("PRAMANA_COLLECT", "1") not in ("0", "false", "
 APP_REGISTRY: dict[str, dict[str, Any]] = {
     "youtube": {
         "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ&autoplay=1",
-        "runtime": "browser", "type": "streaming",
+        "runtime": "browser",
+        "type": "streaming",
         # Hostname suffixes that identify THIS app's traffic in the capture.
         # `googlevideo.com` / `sn-*.gvt1.com` are the media CDN; the rest are
         # page + thumbnail assets. Chrome's own Google traffic (component
         # updates, optimization-guide models) is NOT here — see BROWSER_INFRA.
-        "domains": ["googlevideo.com", "youtube.com", "youtu.be", "ytimg.com",
-                    "ggpht.com", "youtube-nocookie.com", "yt3.ggpht.com"],
+        "domains": [
+            "googlevideo.com",
+            "youtube.com",
+            "youtu.be",
+            "ytimg.com",
+            "ggpht.com",
+            "youtube-nocookie.com",
+            "yt3.ggpht.com",
+        ],
         # Video: ACKs are negligible and combining them inflates the apparent
         # rate, so only the download direction is plotted.
         "plot_directions": ["download"],
@@ -197,7 +209,8 @@ APP_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "vimeo": {
         "url": "https://player.vimeo.com/video/76979871?autoplay=1",
-        "runtime": "browser", "type": "streaming",
+        "runtime": "browser",
+        "type": "streaming",
         "domains": ["vimeocdn.com", "vimeo.com", "akamaized.net/vimeo"],
         "plot_directions": ["download"],
         "color": "#1AB7EA",
@@ -205,22 +218,31 @@ APP_REGISTRY: dict[str, dict[str, Any]] = {
     "twitch": {
         # For sustained live traffic, override with a live channel URL via app_urls.
         "url": "https://www.twitch.tv/",
-        "runtime": "browser", "type": "streaming",
-        "domains": ["twitch.tv", "ttvnw.net", "jtvnw.net", "twitchcdn.net",
-                    "twitchsvc.net", "live-video.net"],
+        "runtime": "browser",
+        "type": "streaming",
+        "domains": [
+            "twitch.tv",
+            "ttvnw.net",
+            "jtvnw.net",
+            "twitchcdn.net",
+            "twitchsvc.net",
+            "live-video.net",
+        ],
         "plot_directions": ["download"],
         "color": "#9146FF",
     },
     "tubi": {
         "url": "https://tubitv.com/",
-        "runtime": "browser", "type": "streaming",
+        "runtime": "browser",
+        "type": "streaming",
         "domains": ["tubitv.com", "adrise.tv", "tubi.video", "tubi.io"],
         "plot_directions": ["download"],
         "color": "#FBC02D",
     },
     "zoom": {
         "url": "",  # supply a meeting join URL via cfg.app_urls["zoom"]
-        "runtime": "browser", "type": "call",
+        "runtime": "browser",
+        "type": "call",
         "domains": ["zoom.us", "zoomgov.com", "zoom.com", "zoom.zdassets.com"],
         # Conferencing is bidirectional — upload matters as much as download,
         # so each direction gets its own plot (never summed).
@@ -229,15 +251,21 @@ APP_REGISTRY: dict[str, dict[str, Any]] = {
     },
     "meet": {
         "url": "",  # supply a meeting join URL via cfg.app_urls["meet"]
-        "runtime": "browser", "type": "call",
-        "domains": ["meet.google.com", "googleusercontent.com/meet",
-                    "stun.l.google.com", "meetings.googleapis.com"],
+        "runtime": "browser",
+        "type": "call",
+        "domains": [
+            "meet.google.com",
+            "googleusercontent.com/meet",
+            "stun.l.google.com",
+            "meetings.googleapis.com",
+        ],
         "plot_directions": ["download", "upload"],
         "color": "#00897B",
     },
     "wget": {
         "url": "http://speedtest.tele2.net/100MB.zip",
-        "runtime": "shell", "type": "bulk",
+        "runtime": "shell",
+        "type": "bulk",
         "domains": ["tele2.net", "speedtest.tele2.net"],
         "plot_directions": ["download"],
         "color": "#607D8B",
@@ -254,15 +282,21 @@ BROWSER_INFRA_DOMAINS: tuple[str, ...] = (
     "edgedl.me.gvt1.com",
     "redirector.gvt1.com",
     "update.googleapis.com",
-    "clients1.google.com", "clients2.google.com", "clients3.google.com",
-    "clients4.google.com", "clients5.google.com", "clients6.google.com",
+    "clients1.google.com",
+    "clients2.google.com",
+    "clients3.google.com",
+    "clients4.google.com",
+    "clients5.google.com",
+    "clients6.google.com",
     "clientservices.googleapis.com",
     "safebrowsing.googleapis.com",
     "content-autofill.googleapis.com",
     "accounts.google.com",
     "android.clients.google.com",
     "android.l.google.com",
-    "www.gstatic.com", "fonts.gstatic.com", "ssl.gstatic.com",
+    "www.gstatic.com",
+    "fonts.gstatic.com",
+    "ssl.gstatic.com",
     "connectivitycheck.gstatic.com",
     "dns.google",
 )
@@ -282,7 +316,11 @@ def app_plot_directions(app: str) -> list[str]:
     dirs = APP_REGISTRY.get(app, {}).get("plot_directions")
     if dirs:
         return list(dirs)
-    return ["download", "upload"] if APP_REGISTRY.get(app, {}).get("type") == "call" else ["download"]
+    return (
+        ["download", "upload"]
+        if APP_REGISTRY.get(app, {}).get("type") == "call"
+        else ["download"]
+    )
 
 
 def app_color(app: str) -> str:
@@ -309,11 +347,16 @@ class ExperimentConfig:
     controller: str = "playwright"
     trial: int = 1
     tag: str = ""
-    app_urls: Optional[dict[str, str]] = None   # per-app URL overrides
+    app_urls: Optional[dict[str, str]] = None  # per-app URL overrides
     # Conferencing apps only produce real QoE when a remote peer is publishing
     # video. Map app -> peer identifier/room; apps needing a peer without one
     # are SKIPPED rather than measured against their own local preview.
     peers: Optional[dict[str, str]] = None
+    # Opt-in: pin YouTube's rendition (setPlaybackQualityRange) instead of
+    # leaving ABR on auto. Default False — every existing run is unaffected.
+    # Forced runs get a `_forcedq` slug so they never mix with the auto runs.
+    force_max_quality: bool = False
+    force_quality_level: str = "hd2160"
 
     experiment_id: str = ""
     slug: str = ""
@@ -344,6 +387,10 @@ class ExperimentConfig:
             f"{apps}_{self.bandwidth_mbps:g}mbps_{self.latency_ms:g}ms_"
             f"{self.loss_pct:g}pct_{self.aqm}_{self.cca}_{self.concurrency}_t{self.trial}"
         )
+        if self.force_max_quality:
+            # Keeps forced-quality runs from ever being grouped with, or
+            # compared against, the auto-ABR runs of the same regime.
+            slug += "_forcedq"
         return slug.replace("/", "-")
 
 
@@ -368,7 +415,9 @@ def _measure(v: Any, unit: str, nd: int = 2) -> str:
 
 
 def _run_dir(cfg: ExperimentConfig) -> Path:
-    suffix = cfg.experiment_id.split("-")[-1] if cfg.experiment_id else uuid.uuid4().hex[:8]
+    suffix = (
+        cfg.experiment_id.split("-")[-1] if cfg.experiment_id else uuid.uuid4().hex[:8]
+    )
     d = RESULTS_ROOT / f"{cfg.slug}_{suffix}"
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -388,12 +437,20 @@ def _build_workflow(app: str, cfg: ExperimentConfig) -> dict[str, Any]:
         # shell agent uses a different verb than "shell".)
         return {
             "specification": app,
-            "states": [{
-                "checks": [],
-                "actions": [{"type": "shell", "params": {
-                    "command": f"wget -O /dev/null {cfg.url_for(app)}"}}],
-                "end_state": "",
-            }],
+            "states": [
+                {
+                    "checks": [],
+                    "actions": [
+                        {
+                            "type": "shell",
+                            "params": {
+                                "command": f"wget -O /dev/null {cfg.url_for(app)}"
+                            },
+                        }
+                    ],
+                    "end_state": "",
+                }
+            ],
         }
 
     url = cfg.url_for(app)
@@ -404,14 +461,16 @@ def _build_workflow(app: str, cfg: ExperimentConfig) -> dict[str, Any]:
         )
     return {
         "specification": app,
-        "states": [{
-            "checks": [],
-            "actions": [
-                {"type": "go_to_url", "params": {"url": url}},
-                {"type": "wait", "params": {"seconds": cfg.duration_s}},
-            ],
-            "end_state": "",
-        }],
+        "states": [
+            {
+                "checks": [],
+                "actions": [
+                    {"type": "go_to_url", "params": {"url": url}},
+                    {"type": "wait", "params": {"seconds": cfg.duration_s}},
+                ],
+                "end_state": "",
+            }
+        ],
     }
 
 
@@ -450,7 +509,7 @@ def substrate_congestion(cfg: ExperimentConfig) -> dict[str, Any]:
 
 def substrate_capture_start(filename: str, duration_s: int) -> dict[str, Any]:
     payload = {
-        "interface": DOWNSTREAM_IFACE,   # only the shaped bottleneck
+        "interface": DOWNSTREAM_IFACE,  # only the shaped bottleneck
         "capture_filter": "",
         "filename": filename,
         "duration_seconds": duration_s,  # auto-stop so the pcap can be downloaded
@@ -479,7 +538,9 @@ def substrate_capture_wait(capture_id: str, timeout_s: int) -> dict[str, Any]:
 
 def substrate_capture_download(capture_id: str, dest: Path) -> bool:
     try:
-        r = requests.get(f"{SUBSTRATE}/capture/{capture_id}/pcap", timeout=HTTP_TIMEOUT * 4)
+        r = requests.get(
+            f"{SUBSTRATE}/capture/{capture_id}/pcap", timeout=HTTP_TIMEOUT * 4
+        )
         r.raise_for_status()
         dest.write_bytes(r.content)
         return dest.stat().st_size > 24
@@ -565,7 +626,9 @@ def ns1_netns_path() -> Optional[str]:
     return f"/proc/{pid}/root/run/netns/ns1"
 
 
-def build_collector_jobs(cfg: ExperimentConfig, out_dir: Path) -> tuple[list[dict], dict[str, str]]:
+def build_collector_jobs(
+    cfg: ExperimentConfig, out_dir: Path
+) -> tuple[list[dict], dict[str, str]]:
     """JOBS payload for the collector + {app: reason} for apps that are skipped."""
     reg, _ = _bind_shared()
     jobs: list[dict[str, Any]] = []
@@ -586,17 +649,22 @@ def build_collector_jobs(cfg: ExperimentConfig, out_dir: Path) -> tuple[list[dic
                 f"(set peers={{'{app}': '<peer room/bot id>'}}). See REALQOE.md."
             )
             continue
-        jobs.append({
-            "app": app,
-            "kind": spec.kind,
-            "url": url,
-            "display_num": display,
-            "out_path": f"/out/{app}_stats.jsonl",
-            "duration_seconds": cfg.duration_s,
-            "sample_interval_seconds": 1.0,
-            "join_timeout_seconds": 180,
-            "barrier_timeout_seconds": max(360, cfg.duration_s + 240),
-        })
+        jobs.append(
+            {
+                "app": app,
+                "kind": spec.kind,
+                "url": url,
+                "display_num": display,
+                "out_path": f"/out/{app}_stats.jsonl",
+                "duration_seconds": cfg.duration_s,
+                "sample_interval_seconds": 1.0,
+                "join_timeout_seconds": 180,
+                "barrier_timeout_seconds": max(360, cfg.duration_s + 240),
+                # Collector applies this to YouTube only; harmless for other apps.
+                "force_max_quality": bool(cfg.force_max_quality),
+                "force_quality_level": cfg.force_quality_level,
+            }
+        )
         display += 1
     return jobs, skipped
 
@@ -605,7 +673,12 @@ def run_qoe_collectors(cfg: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
     """Drive every browser app for real and return where each wrote its samples."""
     reg, _ = _bind_shared()
     if reg is None:
-        return {"jobs": [], "skipped": {}, "stats": {}, "error": "shared.apps unavailable"}
+        return {
+            "jobs": [],
+            "skipped": {},
+            "stats": {},
+            "error": "shared.apps unavailable",
+        }
     jobs, skipped = build_collector_jobs(cfg, run_dir)
     result: dict[str, Any] = {"jobs": jobs, "skipped": skipped, "stats": {}, "log": ""}
     for app, why in skipped.items():
@@ -626,16 +699,41 @@ def run_qoe_collectors(cfg: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
     qoe_dir.mkdir(parents=True, exist_ok=True)
     budget = int(cfg.duration_s + 420)
     args = [
-        DOCKER_BIN, "run", "--rm", "--privileged", "--pid", "host",
+        DOCKER_BIN,
+        "run",
+        "--rm",
+        "--privileged",
+        "--pid",
+        "host",
         # ns1 routes to the real internet, not Docker's embedded resolver.
-        "--dns", "8.8.8.8",
-        "--env", f"JOBS={json.dumps(jobs)}",
-        "--volume", f"{qoe_dir}:/out",
-        "--entrypoint", "nsenter", COLLECTOR_IMAGE,
-        f"--net={netns}", "--", "python3", "collect.py",
+        "--dns",
+        "8.8.8.8",
+        "--env",
+        f"JOBS={json.dumps(jobs)}",
+        "--volume",
+        f"{qoe_dir}:/out",
     ]
-    print(f"    · driving {len(jobs)} browser app(s) in real Chrome inside ns1 "
-          f"({', '.join(j['app'] for j in jobs)}) ...")
+    # Dev override: run a host copy of collect.py inside the published image.
+    # Lets a collector change be exercised without rebuilding a ~2GB image —
+    # useful on a host that has no room to hold two copies of it at once.
+    collector_src = os.environ.get("PRAMANA_COLLECTOR_SRC")
+    if collector_src:
+        src = Path(collector_src).expanduser().resolve()
+        args += ["--volume", f"{src}:/app/collect.py:ro"]
+        print(f"    · collector source overridden from {src}")
+    args += [
+        "--entrypoint",
+        "nsenter",
+        COLLECTOR_IMAGE,
+        f"--net={netns}",
+        "--",
+        "python3",
+        "collect.py",
+    ]
+    print(
+        f"    · driving {len(jobs)} browser app(s) in real Chrome inside ns1 "
+        f"({', '.join(j['app'] for j in jobs)}) ..."
+    )
     rc, log = _run_cmd(args, timeout=budget)
     result["log"] = log
     result["returncode"] = rc
@@ -654,8 +752,9 @@ def run_qoe_collectors(cfg: ExperimentConfig, run_dir: Path) -> dict[str, Any]:
     return result
 
 
-def collect_player_qoe(cfg: ExperimentConfig, run_dir: Path,
-                       transfers: Optional[dict[str, dict]] = None) -> dict[str, Any]:
+def collect_player_qoe(
+    cfg: ExperimentConfig, run_dir: Path, transfers: Optional[dict[str, dict]] = None
+) -> dict[str, Any]:
     """Drive the apps, then reduce their samples with shared.qoe (the definitions)."""
     reg, qoelib = _bind_shared()
     if reg is None or qoelib is None:
@@ -667,11 +766,13 @@ def collect_player_qoe(cfg: ExperimentConfig, run_dir: Path,
         spec = reg.get(app)
         if not spec.has_player_qoe:
             per_app[app] = qoelib.summarize(
-                None, app, transfer=(transfers or {}).get(app))
+                None, app, transfer=(transfers or {}).get(app)
+            )
             continue
         reason = run["skipped"].get(app)
         per_app[app] = qoelib.summarize(
-            run["stats"].get(app, []), app, skipped_reason=reason)
+            run["stats"].get(app, []), app, skipped_reason=reason
+        )
     return per_app
 
 
@@ -687,14 +788,30 @@ def _telemetry_qoe(q: dict[str, Any]) -> dict[str, Any]:
     if not q:
         return {}
     keep = (
-        "video_startup_time_ms", "mean_bitrate_mbps", "max_bitrate_mbps",
-        "min_bitrate_mbps", "mean_watched_bitrate_mbps", "bitrate_changes",
-        "rebuffer_events", "rebuffer_duration_ms", "stall_duration_ms",
-        "video_resolution_p", "frame_rate_fps", "dropped_frame_pct",
-        "dropped_video_frames", "total_video_frames", "resolution_changes",
-        "mean_buffer_ahead_secs", "min_buffer_ahead_secs", "watched_seconds",
-        "session_seconds", "connection_speed_estimate_mbps", "packet_loss_pct",
-        "mean_jitter_secs", "is_live", "video_duration_secs",
+        "video_startup_time_ms",
+        "mean_bitrate_mbps",
+        "max_bitrate_mbps",
+        "min_bitrate_mbps",
+        "mean_watched_bitrate_mbps",
+        "bitrate_changes",
+        "rebuffer_events",
+        "rebuffer_duration_ms",
+        "stall_duration_ms",
+        "video_resolution_p",
+        "frame_rate_fps",
+        "dropped_frame_pct",
+        "dropped_video_frames",
+        "total_video_frames",
+        "resolution_changes",
+        "mean_buffer_ahead_secs",
+        "min_buffer_ahead_secs",
+        "watched_seconds",
+        "session_seconds",
+        "connection_speed_estimate_mbps",
+        "packet_loss_pct",
+        "mean_jitter_secs",
+        "is_live",
+        "video_duration_secs",
         "delivered_fraction_of_video",
     )
     out = {k: q[k] for k in keep if k in q}
@@ -709,9 +826,15 @@ def _telemetry_qoe(q: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def telemetry_post_result(experiment_id: str, app: str, cfg: ExperimentConfig,
-                          measured_throughput: Optional[float], qoe: dict[str, Any],
-                          pcap_path: str, status: str = "success") -> Optional[dict[str, Any]]:
+def telemetry_post_result(
+    experiment_id: str,
+    app: str,
+    cfg: ExperimentConfig,
+    measured_throughput: Optional[float],
+    qoe: dict[str, Any],
+    pcap_path: str,
+    status: str = "success",
+) -> Optional[dict[str, Any]]:
     payload = {
         "experiment_id": experiment_id,
         "trial_number": cfg.trial,
@@ -792,17 +915,23 @@ def _iter_pcapng(path: str):
                     break
                 if code == 9 and olen >= 1:  # if_tsresol
                     raw = blob[opt + 4]
-                    tsresol = (1.0 / (2 ** (raw & 0x7F))) if (raw & 0x80) else (10.0 ** -(raw & 0x7F))
+                    tsresol = (
+                        (1.0 / (2 ** (raw & 0x7F)))
+                        if (raw & 0x80)
+                        else (10.0 ** -(raw & 0x7F))
+                    )
                 opt += 4 + olen + ((4 - olen % 4) % 4)
         elif btype == 0x00000006:  # Enhanced Packet Block
-            _iface, tsh, tsl, caplen, origlen = struct.unpack_from(endian + "IIIII", blob, off + 8)
+            _iface, tsh, tsl, caplen, origlen = struct.unpack_from(
+                endian + "IIIII", blob, off + 8
+            )
             ts = ((tsh << 32) | tsl) * tsresol
-            data = blob[off + 28: off + 28 + caplen]
+            data = blob[off + 28 : off + 28 + caplen]
             yield ts, origlen, linktype, data
         elif btype == 0x00000003:  # Simple Packet Block
             origlen = struct.unpack_from(endian + "I", blob, off + 8)[0]
             caplen = min(origlen, blen - 16)
-            yield 0.0, origlen, linktype, blob[off + 12: off + 12 + caplen]
+            yield 0.0, origlen, linktype, blob[off + 12 : off + 12 + caplen]
         off += blen
 
 
@@ -865,7 +994,7 @@ def _l3(linktype: int, data: bytes) -> tuple[Optional[int], bytes]:
             return None, b""
         et = struct.unpack_from(">H", data, 12)[0]
         off = 14
-        while et in (0x8100, 0x88A8) and len(data) >= off + 4:   # VLAN tags
+        while et in (0x8100, 0x88A8) and len(data) >= off + 4:  # VLAN tags
             et = struct.unpack_from(">H", data, off + 2)[0]
             off += 4
         if et == 0x0800:
@@ -904,8 +1033,12 @@ def _parse_ip(fam: int, buf: bytes):
         if ihl < 20 or len(buf) < ihl:
             return None
         proto = buf[9]
-        return (socket.inet_ntoa(buf[12:16]), socket.inet_ntoa(buf[16:20]),
-                proto, buf[ihl:])
+        return (
+            socket.inet_ntoa(buf[12:16]),
+            socket.inet_ntoa(buf[16:20]),
+            proto,
+            buf[ihl:],
+        )
     if fam == 6:
         if len(buf) < 40:
             return None
@@ -988,7 +1121,7 @@ def _dns_name(buf: bytes, off: int) -> tuple[Optional[str], int]:
             jumped = True
             continue
         off += 1
-        labels.append(buf[off:off + ln].decode("ascii", "replace"))
+        labels.append(buf[off : off + ln].decode("ascii", "replace"))
         off += ln
     return ".".join(labels), (nxt if jumped else off)
 
@@ -999,7 +1132,7 @@ def _harvest_dns(l4: bytes, out: dict[str, str]) -> None:
     if len(dns) < 12:
         return
     flags, qd, an = struct.unpack_from(">HHH", dns, 2)
-    if not flags & 0x8000 or an == 0:       # responses only
+    if not flags & 0x8000 or an == 0:  # responses only
         return
     off = 12
     qname = None
@@ -1018,7 +1151,7 @@ def _harvest_dns(l4: bytes, out: dict[str, str]) -> None:
             return
         rtype, _rclass, _ttl, rdlen = struct.unpack_from(">HHIH", dns, off)
         off += 10
-        rdata = dns[off:off + rdlen]
+        rdata = dns[off : off + rdlen]
         off += rdlen
         name = qname or owner
         try:
@@ -1040,19 +1173,19 @@ def _harvest_sni(l4: bytes, dst: str, out: dict[str, str]) -> None:
     if len(b) < 45 or b[0] != 0x16 or b[5] != 0x01:
         return
     try:
-        o = 5 + 4 + 2 + 32                       # record + hs hdr + version + random
-        o += 1 + b[o]                            # session id
-        o += 2 + struct.unpack_from(">H", b, o)[0]   # cipher suites
-        o += 1 + b[o]                            # compression methods
+        o = 5 + 4 + 2 + 32  # record + hs hdr + version + random
+        o += 1 + b[o]  # session id
+        o += 2 + struct.unpack_from(">H", b, o)[0]  # cipher suites
+        o += 1 + b[o]  # compression methods
         ext_len = struct.unpack_from(">H", b, o)[0]
         o += 2
         end = min(o + ext_len, len(b))
         while o + 4 <= end:
             etype, elen = struct.unpack_from(">HH", b, o)
             o += 4
-            if etype == 0 and o + 5 <= len(b):   # server_name
+            if etype == 0 and o + 5 <= len(b):  # server_name
                 nlen = struct.unpack_from(">H", b, o + 3)[0]
-                host = b[o + 5:o + 5 + nlen].decode("ascii", "replace")
+                host = b[o + 5 : o + 5 + nlen].decode("ascii", "replace")
                 if host:
                     out.setdefault(dst, host)
                 return
@@ -1067,7 +1200,7 @@ def _host_matches(host: str, domains: Iterable[str]) -> bool:
         return False
     for d in domains:
         d = d.lower()
-        if "/" in d:                    # e.g. "akamaized.net/vimeo" → both parts
+        if "/" in d:  # e.g. "akamaized.net/vimeo" → both parts
             a, b = d.split("/", 1)
             if h.endswith(a) and b in h:
                 return True
@@ -1107,7 +1240,7 @@ class AppTraffic:
     """Time-binned throughput for one app in one direction."""
 
     app: str
-    direction: str                      # "download" | "upload"
+    direction: str  # "download" | "upload"
     times: list[float] = field(default_factory=list)
     mbps: list[float] = field(default_factory=list)
     total_mb: float = 0.0
@@ -1117,9 +1250,9 @@ class AppTraffic:
     p95_throughput_mbps: Optional[float] = None
     stall_seconds: Optional[float] = None
     stall_bins: list[int] = field(default_factory=list)
-    delivered_fraction: Optional[float] = None   # share of the run with traffic
-    mean_over_cap: Optional[float] = None        # avg ÷ cap
-    classification: str = "no_traffic"           # served | starved | no_traffic
+    delivered_fraction: Optional[float] = None  # share of the run with traffic
+    mean_over_cap: Optional[float] = None  # avg ÷ cap
+    classification: str = "no_traffic"  # served | starved | no_traffic
     hosts: list[str] = field(default_factory=list)
 
     def as_record(self) -> dict[str, Any]:
@@ -1135,8 +1268,8 @@ class AppTraffic:
 class CaptureAttribution:
     """The result of splitting one capture into per-app, per-direction traffic."""
 
-    method: str = "none"                # local_alias_ip | remote_hostname | none
-    note: str = ""                      # why attribution produced nothing, if so
+    method: str = "none"  # local_alias_ip | remote_hostname | none
+    note: str = ""  # why attribution produced nothing, if so
     bin_s: float = 1.0
     duration_s: float = 0.0
     nbins: int = 0
@@ -1144,15 +1277,16 @@ class CaptureAttribution:
     per_app: dict[str, dict[str, AppTraffic]] = field(default_factory=dict)
     host_bytes: dict[str, int] = field(default_factory=dict)
     bucket_mb: dict[str, float] = field(default_factory=dict)
-    attributed_fraction: float = 0.0    # share of bytes mapped to a named bucket
+    attributed_fraction: float = 0.0  # share of bytes mapped to a named bucket
     total_mb: float = 0.0
 
     def traffic(self, app: str, direction: str) -> Optional[AppTraffic]:
         return (self.per_app.get(app) or {}).get(direction)
 
 
-def _finalise(at: AppTraffic, cap_mbps: float, bins: dict[int, int],
-              nbins: int, bin_s: float) -> AppTraffic:
+def _finalise(
+    at: AppTraffic, cap_mbps: float, bins: dict[int, int], nbins: int, bin_s: float
+) -> AppTraffic:
     """Fill the derived QoE-proxy metrics for one app/direction series."""
     at.times, at.mbps = _series_from_bins(bins, nbins, bin_s)
     total_bytes = sum(bins.values())
@@ -1172,20 +1306,27 @@ def _finalise(at: AppTraffic, cap_mbps: float, bins: dict[int, int],
     at.stall_bins = [i for i, r in enumerate(at.mbps) if r < stall_thresh]
     at.stall_seconds = round(len(at.stall_bins) * bin_s, 2)
     # Delivered fraction = share of the run that actually had active traffic.
-    at.delivered_fraction = round(1.0 - len(at.stall_bins) / nbins, 3) if nbins else None
+    at.delivered_fraction = (
+        round(1.0 - len(at.stall_bins) / nbins, 3) if nbins else None
+    )
     if cap_mbps > 0:
         at.mean_over_cap = round(at.avg_throughput_mbps / cap_mbps, 3)
         # Supervisor's rule: peak ≥ 30% of cap means the app really streamed.
-        at.classification = ("served" if at.peak_throughput_mbps >= 0.30 * cap_mbps
-                             else "starved")
+        at.classification = (
+            "served" if at.peak_throughput_mbps >= 0.30 * cap_mbps else "starved"
+        )
     else:
         at.classification = "served"
     return at
 
 
-def attribute_capture(pcap: Path, apps: Iterable[str], cap_mbps: float,
-                      bin_s: float = 1.0,
-                      local_ip_map: Optional[dict[str, str]] = None) -> CaptureAttribution:
+def attribute_capture(
+    pcap: Path,
+    apps: Iterable[str],
+    cap_mbps: float,
+    bin_s: float = 1.0,
+    local_ip_map: Optional[dict[str, str]] = None,
+) -> CaptureAttribution:
     """Split a shared capture into per-app download/upload throughput series.
 
     `local_ip_map` maps app → its namespace/alias IP. When supplied (substrate
@@ -1234,9 +1375,11 @@ def attribute_capture(pcap: Path, apps: Iterable[str], cap_mbps: float,
         # the generated `results/phase*` fixtures), where per-app attribution is
         # impossible in principle rather than broken here.
         if frames:
-            res.note = (f"{frames} frames read but no IP headers could be parsed — "
-                        f"the capture carries lengths/timestamps only (synthetic or "
-                        f"payload-stripped), so it cannot be split per app")
+            res.note = (
+                f"{frames} frames read but no IP headers could be parsed — "
+                f"the capture carries lengths/timestamps only (synthetic or "
+                f"payload-stripped), so it cannot be split per app"
+            )
             print(f"  ! {res.note}")
         else:
             res.note = "capture is empty"
@@ -1253,7 +1396,8 @@ def attribute_capture(pcap: Path, apps: Iterable[str], cap_mbps: float,
         res.method = "local_alias_ip"
     else:
         res.local_ips = sorted(
-            ip for ip, c in endpoint_pkts.items()
+            ip
+            for ip, c in endpoint_pkts.items()
             if _is_private(ip) and c >= 0.10 * total_pkts
         )
         if not res.local_ips and endpoint_pkts:
@@ -1262,7 +1406,9 @@ def attribute_capture(pcap: Path, apps: Iterable[str], cap_mbps: float,
     local = set(res.local_ips)
 
     # ── pass 2: bin bytes per (bucket, direction) ────────────────────────────
-    buckets: dict[tuple[str, str], dict[int, int]] = defaultdict(lambda: defaultdict(int))
+    buckets: dict[tuple[str, str], dict[int, int]] = defaultdict(
+        lambda: defaultdict(int)
+    )
     pkt_counts: dict[tuple[str, str], int] = defaultdict(int)
     bucket_hosts: dict[str, set[str]] = defaultdict(set)
     host_bytes: dict[str, int] = defaultdict(int)
@@ -1305,8 +1451,10 @@ def attribute_capture(pcap: Path, apps: Iterable[str], cap_mbps: float,
             pkt_counts[(bucket, direction)] += 1
 
     res.total_mb = round(total_bytes / 1e6, 3)
-    res.bucket_mb = {k: round(v / 1e6, 3) for k, v in sorted(
-        bucket_bytes.items(), key=lambda kv: -kv[1])}
+    res.bucket_mb = {
+        k: round(v / 1e6, 3)
+        for k, v in sorted(bucket_bytes.items(), key=lambda kv: -kv[1])
+    }
     res.host_bytes = dict(sorted(host_bytes.items(), key=lambda kv: -kv[1])[:40])
     named = sum(v for k, v in bucket_bytes.items() if k != "other")
     res.attributed_fraction = round(named / total_bytes, 4) if total_bytes else 0.0
@@ -1318,7 +1466,8 @@ def attribute_capture(pcap: Path, apps: Iterable[str], cap_mbps: float,
             at.packets = pkt_counts.get((app, direction), 0)
             at.hosts = sorted(bucket_hosts.get(app, ()))[:12]
             res.per_app[app][direction] = _finalise(
-                at, cap_mbps, buckets.get((app, direction), {}), res.nbins, bin_s)
+                at, cap_mbps, buckets.get((app, direction), {}), res.nbins, bin_s
+            )
     return res
 
 
@@ -1333,8 +1482,8 @@ class NetStats:
     avg_throughput_mbps: Optional[float] = None
     peak_throughput_mbps: Optional[float] = None
     p95_throughput_mbps: Optional[float] = None
-    delivered_fraction: Optional[float] = None   # avg / cap
-    stall_seconds: Optional[float] = None        # seconds with ~no traffic
+    delivered_fraction: Optional[float] = None  # avg / cap
+    stall_seconds: Optional[float] = None  # seconds with ~no traffic
     shaping_verified: bool = False
     shaping_error_pct: Optional[float] = None
 
@@ -1354,7 +1503,9 @@ def analyze_pcap_netstats(pcap: Path, cap_mbps: float) -> NetStats:
         packets=len(packets),
         duration_s=round(duration, 2),
         total_mb=round(total_bytes / 1e6, 2),
-        avg_throughput_mbps=round(total_bytes * 8 / max(duration, 0.001) / 1e6, 3) if duration else None,
+        avg_throughput_mbps=(
+            round(total_bytes * 8 / max(duration, 0.001) / 1e6, 3) if duration else None
+        ),
     )
 
     # per-second throughput series for peak / p95 / stalls
@@ -1371,7 +1522,9 @@ def analyze_pcap_netstats(pcap: Path, cap_mbps: float) -> NetStats:
         err = (ns.avg_throughput_mbps - cap_mbps) / cap_mbps
         ns.shaping_error_pct = round(err * 100, 1)
         # verified = did not blow past the cap (running under the cap is fine)
-        ns.shaping_verified = ns.avg_throughput_mbps <= cap_mbps * (1 + SHAPING_TOLERANCE)
+        ns.shaping_verified = ns.avg_throughput_mbps <= cap_mbps * (
+            1 + SHAPING_TOLERANCE
+        )
     return ns
 
 
@@ -1392,8 +1545,10 @@ def classify_traffic(app: str, net: NetStats, cfg: ExperimentConfig) -> str:
     cap = cfg.bandwidth_mbps if cfg else 0
     # "pinned near cap": p95 close to cap AND average is a large fraction of cap.
     if cap and net.p95_throughput_mbps and net.avg_throughput_mbps:
-        pinned = (net.p95_throughput_mbps >= 0.9 * cap and
-                  net.avg_throughput_mbps >= 0.8 * cap)
+        pinned = (
+            net.p95_throughput_mbps >= 0.9 * cap
+            and net.avg_throughput_mbps >= 0.8 * cap
+        )
         if pinned:
             return "starved"
     return "served"
@@ -1401,7 +1556,7 @@ def classify_traffic(app: str, net: NetStats, cfg: ExperimentConfig) -> str:
 
 # Back-compat aliases (older notebooks referenced these names)
 def extract_app_qoe(app: str, cfg: ExperimentConfig) -> dict[str, Any]:
-    return {}   # deployed substrate v2 engine exposes no player QoE
+    return {}  # deployed substrate v2 engine exposes no player QoE
 
 
 def classify_qoe(app: str, qoe: dict[str, Any], net: NetStats) -> str:
@@ -1423,8 +1578,13 @@ def classify_qoe(app: str, qoe: dict[str, Any], net: NetStats) -> str:
 # `generate_run_plots()` is called automatically at the end of every run.
 
 DISPLAY_NAMES = {
-    "youtube": "YouTube", "vimeo": "Vimeo", "twitch": "Twitch", "tubi": "Tubi",
-    "zoom": "Zoom", "meet": "Google Meet", "wget": "Bulk download (wget)",
+    "youtube": "YouTube",
+    "vimeo": "Vimeo",
+    "twitch": "Twitch",
+    "tubi": "Tubi",
+    "zoom": "Zoom",
+    "meet": "Google Meet",
+    "wget": "Bulk download (wget)",
 }
 
 
@@ -1435,8 +1595,10 @@ def display_name(app: str) -> str:
 def _plt():
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
+
         return plt
     except Exception:
         return None
@@ -1450,8 +1612,9 @@ def _regime(cfg: ExperimentConfig) -> str:
     return " / ".join(bits)
 
 
-def _plot_title(app: str, cfg: ExperimentConfig, direction: str,
-                both_directions: bool) -> str:
+def _plot_title(
+    app: str, cfg: ExperimentConfig, direction: str, both_directions: bool
+) -> str:
     # Video apps get the canonical `Throughput — YouTube — 6 Mbps / 50ms / pfifo`.
     # Call apps produce two plots, so the direction is added to tell them apart.
     what = "Throughput" if not both_directions else f"Throughput ({direction})"
@@ -1478,13 +1641,19 @@ def _shade_stalls(ax, at: AppTraffic, bin_s: float) -> int:
         lo = prev = i
     spans.append((lo * bin_s, (prev + 1) * bin_s))
     for j, (a, b) in enumerate(spans):
-        ax.axvspan(a, b, color="#F44336", alpha=0.10,
-                   label="idle / no active transfer" if j == 0 else None)
+        ax.axvspan(
+            a,
+            b,
+            color="#F44336",
+            alpha=0.10,
+            label="idle / no active transfer" if j == 0 else None,
+        )
     return len(spans)
 
 
-def plot_app_throughput(at: AppTraffic, cfg: ExperimentConfig, out: Path,
-                        both_directions: bool = False) -> Optional[Path]:
+def plot_app_throughput(
+    at: AppTraffic, cfg: ExperimentConfig, out: Path, both_directions: bool = False
+) -> Optional[Path]:
     """One app, one direction, one PNG: its traffic + the cap + avg/peak."""
     plt = _plt()
     # No traffic attributed (e.g. a skipped app) => nothing to plot, and the
@@ -1496,27 +1665,41 @@ def plot_app_throughput(at: AppTraffic, cfg: ExperimentConfig, out: Path,
     fig, ax = plt.subplots(figsize=(12, 4.2))
     ax.plot(at.times, at.mbps, linewidth=1.0, color=color)
     ax.fill_between(at.times, at.mbps, alpha=0.15, color=color)
-    ax.axhline(cap, color="green", linewidth=1.3, alpha=0.85,
-               label=f"cap {cap:g} Mbps")
+    ax.axhline(cap, color="green", linewidth=1.3, alpha=0.85, label=f"cap {cap:g} Mbps")
     if at.peak_throughput_mbps is not None:
-        ax.axhline(at.peak_throughput_mbps, color="#7B1FA2", linestyle="-.",
-                   linewidth=1.0, alpha=0.85,
-                   label=f"peak {at.peak_throughput_mbps:.2f} Mbps")
+        ax.axhline(
+            at.peak_throughput_mbps,
+            color="#7B1FA2",
+            linestyle="-.",
+            linewidth=1.0,
+            alpha=0.85,
+            label=f"peak {at.peak_throughput_mbps:.2f} Mbps",
+        )
     if at.avg_throughput_mbps is not None:
-        ax.axhline(at.avg_throughput_mbps, color="red", linestyle="--",
-                   linewidth=1.0, alpha=0.85,
-                   label=f"avg {at.avg_throughput_mbps:.2f} Mbps")
+        ax.axhline(
+            at.avg_throughput_mbps,
+            color="red",
+            linestyle="--",
+            linewidth=1.0,
+            alpha=0.85,
+            label=f"avg {at.avg_throughput_mbps:.2f} Mbps",
+        )
     ax.set_xlabel("Time (s)")
     ax.set_ylabel(f"{at.direction.title()} throughput (Mbps)")
     ax.set_title(_plot_title(at.app, cfg, at.direction, both_directions))
     ax.set_xlim(0, max(at.times) if at.times else 1)
-    ax.set_ylim(bottom=0, top=max(cap * 1.25, (at.peak_throughput_mbps or 0) * 1.15, 0.1))
+    ax.set_ylim(
+        bottom=0, top=max(cap * 1.25, (at.peak_throughput_mbps or 0) * 1.15, 0.1)
+    )
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper right", fontsize=8)
     ax.annotate(
         f"avg {at.avg_throughput_mbps:.2f} Mbps   peak {at.peak_throughput_mbps:.2f} Mbps"
         f"   total {at.total_mb:.1f} MB",
-        xy=(0.01, 0.96), xycoords="axes fraction", va="top", fontsize=9,
+        xy=(0.01, 0.96),
+        xycoords="axes fraction",
+        va="top",
+        fontsize=9,
         bbox=dict(boxstyle="round,pad=0.35", fc="white", ec="#BBBBBB", alpha=0.85),
     )
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -1526,9 +1709,77 @@ def plot_app_throughput(at: AppTraffic, cfg: ExperimentConfig, out: Path,
     return out
 
 
-def plot_app_qoe_summary(at: AppTraffic, cfg: ExperimentConfig, out: Path,
-                         player_qoe: Optional[dict[str, Any]] = None,
-                         bin_s: float = 1.0) -> Optional[Path]:
+def _panel_verdict(at: AppTraffic, pq: dict[str, Any]) -> tuple[str, str, str]:
+    """Honest classification for one QoE-summary panel: (label, why, colour).
+
+    The network side only ever sees bytes. An app can pull megabytes and never
+    render a frame, so a verdict drawn from throughput alone must never claim
+    the app played. When the player answered, the player decides; when it did
+    not, the label stays explicitly provisional.
+    """
+    real = bool(pq.get("player_qoe_available"))
+    status = str(pq.get("status") or "")
+    reason = str(pq.get("reason") or "")
+
+    if real:
+        # Real player metrics: the media clock is the arbiter.
+        watched = pq.get("watched_seconds") or 0
+        if pq.get("video_resolution_p") and watched > 0:
+            rebuffers = pq.get("rebuffer_events") or 0
+            frozen_ms = pq.get("rebuffer_duration_ms") or 0
+            if rebuffers or frozen_ms:
+                return (
+                    "degraded",
+                    f"player clock advanced but rebuffered {rebuffers}× "
+                    f"({frozen_ms:.0f} ms frozen): playback was impaired",
+                    "#EF6C00",
+                )
+            return (
+                "served",
+                f"player clock advanced {watched:.0f}s with no rebuffering: "
+                "the app really streamed",
+                "#2E7D32",
+            )
+        return (
+            "no_playback",
+            "player exposed no advancing media clock: the app did not play",
+            "#C62828",
+        )
+
+    # No usable player metrics — but the player may still have reported that
+    # playback never started, which is evidence, not a gap.
+    if status in ("no_data", "skipped") and reason.startswith("no_playback"):
+        return (
+            "no_playback",
+            "player clock never advanced past 0 for the whole run: "
+            "the app did not play",
+            "#C62828",
+        )
+
+    # Nothing from the player at all: network-side only, and provisional.
+    if at.classification == "no_traffic":
+        return ("no_traffic", "no bytes attributed to this app", "#C62828")
+    if at.classification == "starved":
+        return (
+            "starved (network only)",
+            "peak < 30% of cap: the app got almost nothing " "— playback unconfirmed",
+            "#C62828",
+        )
+    return (
+        "network activity only — playback unconfirmed",
+        "peak ≥ 30% of cap, so bytes moved; without player data that is "
+        "NOT evidence the app streamed",
+        "#EF6C00",
+    )
+
+
+def plot_app_qoe_summary(
+    at: AppTraffic,
+    cfg: ExperimentConfig,
+    out: Path,
+    player_qoe: Optional[dict[str, Any]] = None,
+    bin_s: float = 1.0,
+) -> Optional[Path]:
     """QoE summary for one app.
 
     When `player_qoe` carries real player-side metrics (``shared.qoe.summarize``
@@ -1554,50 +1805,95 @@ def plot_app_qoe_summary(at: AppTraffic, cfg: ExperimentConfig, out: Path,
     res_series = series.get("resolution_p") or []
     rebuffer_spans = pq.get("rebuffer_spans") or []
 
-    panels = 1 + (1 if (real and buf_series) else 0) + (1 if (real and res_series) else 0)
+    panels = (
+        1 + (1 if (real and buf_series) else 0) + (1 if (real and res_series) else 0)
+    )
     heights = [2] + [1] * (panels - 1)
     # Text below the axes is positioned in INCHES-normalised units: a fixed
     # figure fraction shrinks as panels are added and collides with the x-axis.
-    reserve_in = 1.15 if real else 1.45
+    # Both branches now carry a two-line classification box, and the honest
+    # footnote can wrap to a second line — reserve room for both.
+    reserve_in = 1.95
     fig_h = 4.4 + 1.9 * (panels - 1) + reserve_in
-    fig, axes = plt.subplots(panels, 1, figsize=(12, fig_h),
-                             sharex=True, gridspec_kw={"height_ratios": heights})
+    fig, axes = plt.subplots(
+        panels,
+        1,
+        figsize=(12, fig_h),
+        sharex=True,
+        gridspec_kw={"height_ratios": heights},
+    )
     axes = [axes] if panels == 1 else list(axes)
     ax = axes[0]
 
     # ── panel 1: this app's throughput ───────────────────────────────────────
     nstalls = _shade_stalls(ax, at, bin_s)
-    ax.plot(at.times, at.mbps, linewidth=1.0, color=color,
-            label=f"{display_name(at.app)} {at.direction}")
+    ax.plot(
+        at.times,
+        at.mbps,
+        linewidth=1.0,
+        color=color,
+        label=f"{display_name(at.app)} {at.direction}",
+    )
     ax.fill_between(at.times, at.mbps, alpha=0.15, color=color)
     ax.axhline(cap, color="green", linewidth=1.3, alpha=0.85, label=f"cap {cap:g} Mbps")
-    ax.axhline(at.peak_throughput_mbps or 0, color="#7B1FA2", linestyle="-.",
-               linewidth=1.0, alpha=0.9, label=f"peak {at.peak_throughput_mbps:.2f} Mbps")
-    ax.axhline(at.avg_throughput_mbps or 0, color="red", linestyle="--",
-               linewidth=1.0, alpha=0.9, label=f"avg {at.avg_throughput_mbps:.2f} Mbps")
+    ax.axhline(
+        at.peak_throughput_mbps or 0,
+        color="#7B1FA2",
+        linestyle="-.",
+        linewidth=1.0,
+        alpha=0.9,
+        label=f"peak {at.peak_throughput_mbps:.2f} Mbps",
+    )
+    ax.axhline(
+        at.avg_throughput_mbps or 0,
+        color="red",
+        linestyle="--",
+        linewidth=1.0,
+        alpha=0.9,
+        label=f"avg {at.avg_throughput_mbps:.2f} Mbps",
+    )
     # Real rebuffers, from the player — drawn over the throughput so the reader
     # can see that idle network time and frozen playback are different things.
     for j, (a, b) in enumerate(rebuffer_spans):
-        ax.axvspan(a, b, color="#D32F2F", alpha=0.30, hatch="//", zorder=3,
-                   label="REBUFFER (player)" if j == 0 else None)
+        ax.axvspan(
+            a,
+            b,
+            color="#D32F2F",
+            alpha=0.30,
+            hatch="//",
+            zorder=3,
+            label="REBUFFER (player)" if j == 0 else None,
+        )
     ax.set_ylabel(f"{at.direction.title()} tput (Mbps)")
-    ax.set_ylim(bottom=0, top=max(cap * 1.25, (at.peak_throughput_mbps or 0) * 1.15, 0.1))
+    ax.set_ylim(
+        bottom=0, top=max(cap * 1.25, (at.peak_throughput_mbps or 0) * 1.15, 0.1)
+    )
     ax.set_xlim(0, max(at.times))
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper right", fontsize=8, ncol=2)
-    ax.set_title(f"QoE summary — {display_name(at.app)} — {_regime(cfg)}"
-                 + ("   [real player-side metrics]" if real else "   [network proxies]"))
+    ax.set_title(
+        f"QoE summary — {display_name(at.app)} — {_regime(cfg)}"
+        + ("   [real player-side metrics]" if real else "   [network proxies]")
+    )
 
     idx = 1
     # ── panel 2: buffer ahead + real rebuffer spans ──────────────────────────
     if real and buf_series:
-        bx = axes[idx]; idx += 1
-        bt = [d["t"] for d in buf_series]; bv = [d["v"] for d in buf_series]
+        bx = axes[idx]
+        idx += 1
+        bt = [d["t"] for d in buf_series]
+        bv = [d["v"] for d in buf_series]
         bx.plot(bt, bv, linewidth=1.1, color="#1565C0")
         bx.fill_between(bt, bv, alpha=0.18, color="#1565C0")
         for j, (a, b) in enumerate(rebuffer_spans):
-            bx.axvspan(a, b, color="#D32F2F", alpha=0.30, hatch="//",
-                       label="rebuffer" if j == 0 else None)
+            bx.axvspan(
+                a,
+                b,
+                color="#D32F2F",
+                alpha=0.30,
+                hatch="//",
+                label="rebuffer" if j == 0 else None,
+            )
         bx.set_ylabel("buffer ahead (s)")
         bx.grid(True, alpha=0.3)
         bx.set_ylim(bottom=0)
@@ -1606,9 +1902,12 @@ def plot_app_qoe_summary(at: AppTraffic, cfg: ExperimentConfig, out: Path,
 
     # ── panel 3: rendered resolution over time ───────────────────────────────
     if real and res_series:
-        rx = axes[idx]; idx += 1
-        rt = [d["t"] for d in res_series]; rv = [d["v"] for d in res_series]
-        rt2 = rt + [max(at.times)]; rv2 = rv + [rv[-1]]
+        rx = axes[idx]
+        idx += 1
+        rt = [d["t"] for d in res_series]
+        rv = [d["v"] for d in res_series]
+        rt2 = rt + [max(at.times)]
+        rv2 = rv + [rv[-1]]
         rx.step(rt2, rv2, where="post", linewidth=1.4, color="#2E7D32")
         rx.scatter(rt, rv, s=18, color="#2E7D32", zorder=3)
         rx.set_ylabel("resolution (p)")
@@ -1622,46 +1921,102 @@ def plot_app_qoe_summary(at: AppTraffic, cfg: ExperimentConfig, out: Path,
 
     # ── metrics panel under the axes ─────────────────────────────────────────
     if real:
+
         def g(k, fmt="{}", sfx=""):
             v = pq.get(k)
             return "n/a" if v is None else (fmt.format(v) + sfx)
-        line1 = (f"startup  {g('video_startup_time_ms','{:.0f}',' ms')}"
-                 f"          rebuffers  {g('rebuffer_events')}"
-                 f" ({g('rebuffer_duration_ms','{:.0f}',' ms')} total)"
-                 f"          resolution  {g('video_resolution_p','{}','p')}"
-                 f"          fps  {g('frame_rate_fps','{:.1f}')}")
-        line2 = (f"dropped frames  {g('dropped_frame_pct','{:.2f}','%')}"
-                 f"          mean buffer  {g('mean_buffer_ahead_secs','{:.1f}',' s')}"
-                 f"          bitrate  {g('mean_bitrate_mbps','{:.2f}',' Mbps')}"
-                 f"          watched  {g('watched_seconds','{:.0f}',' s')}")
-        note = ("player_qoe_available = TRUE — metrics above are REAL player-side "
-                "measurements, not network proxies. Null = a signal this player "
-                "does not expose (see REALQOE.md), never a stand-in.")
-        vcolor = "#2E7D32"
-    else:
-        line1 = (f"delivered fraction  {100 * (at.delivered_fraction or 0):.1f}% of the run had active traffic"
-                 f"          idle time  {at.stall_seconds:g}s in {nstalls} span(s)")
-        line2 = (f"peak  {at.peak_throughput_mbps:.2f} Mbps ({pct(at.peak_throughput_mbps):.0f}% of cap)"
-                 f"          average  {at.avg_throughput_mbps:.2f} Mbps"
-                 f"          delivered  {at.total_mb:.1f} MB")
-        note = ("player_qoe_available = FALSE — no player stats for this run, so "
-                "resolution / rebuffers / dropped frames are NOT measured. The shaded "
-                "band is network idle time, which is not evidence of a stall.")
-        vcolor = "#2E7D32" if at.classification == "served" else "#C62828"
 
-    y = lambda inches: inches / fig_h        # inches from the figure bottom
-    fig.text(0.012, y(reserve_in - 0.62), line1 + "\n" + line2, fontsize=9,
-             va="bottom", ha="left", color="#212121", linespacing=1.6)
-    if not real:
-        fig.text(0.012, y(0.38),
-                 f"classification:  {at.classification.upper()}   —   "
-                 + ("peak ≥ 30% of cap: the app really streamed"
-                    if at.classification == "served"
-                    else "peak < 30% of cap: the app got almost nothing"),
-                 fontsize=9.5, va="bottom", ha="left", color=vcolor, weight="bold",
-                 bbox=dict(boxstyle="round,pad=0.35", fc="white", ec=vcolor, lw=1.3,
-                           alpha=0.95))
-    fig.text(0.012, y(0.10), note, fontsize=7.5, color="#616161", va="bottom")
+        line1 = (
+            f"startup  {g('video_startup_time_ms','{:.0f}',' ms')}"
+            f"          rebuffers  {g('rebuffer_events')}"
+            f" ({g('rebuffer_duration_ms','{:.0f}',' ms')} total)"
+            f"          resolution  {g('video_resolution_p','{}','p')}"
+            f"          fps  {g('frame_rate_fps','{:.1f}')}"
+        )
+        line2 = (
+            f"dropped frames  {g('dropped_frame_pct','{:.2f}','%')}"
+            f"          mean buffer  {g('mean_buffer_ahead_secs','{:.1f}',' s')}"
+            f"          bitrate  {g('mean_bitrate_mbps','{:.2f}',' Mbps')}"
+            f"          watched  {g('watched_seconds','{:.0f}',' s')}"
+        )
+        note = (
+            "player_qoe_available = TRUE — metrics above are REAL player-side "
+            "measurements, not network proxies. Null = a signal this player "
+            "does not expose (see REALQOE.md), never a stand-in."
+        )
+    else:
+        line1 = (
+            f"delivered fraction  {100 * (at.delivered_fraction or 0):.1f}% of the run had active traffic"
+            f"          idle time  {at.stall_seconds:g}s in {nstalls} span(s)"
+        )
+        line2 = (
+            f"peak  {at.peak_throughput_mbps:.2f} Mbps ({pct(at.peak_throughput_mbps):.0f}% of cap)"
+            f"          average  {at.avg_throughput_mbps:.2f} Mbps"
+            f"          delivered  {at.total_mb:.1f} MB"
+        )
+        # Two different worlds land here: the player answered "it never played"
+        # (evidence), or there was no player at all (a gap). Say which.
+        said_no_playback = str(pq.get("status") or "") in (
+            "no_data",
+            "skipped",
+        ) and str(pq.get("reason") or "").startswith("no_playback")
+        if said_no_playback:
+            note = (
+                "player_qoe_available = FALSE — the player WAS sampled and its "
+                "media clock never advanced past 0, so playback did not happen; "
+                "resolution / rebuffers / dropped frames are therefore not "
+                "measurable. The shaded band is network idle time, which is not "
+                "evidence of a stall."
+            )
+        else:
+            note = (
+                "player_qoe_available = FALSE — no player stats for this run, so "
+                "resolution / rebuffers / dropped frames are NOT measured. Metrics "
+                "above are network proxies only and cannot confirm playback. The "
+                "shaded band is network idle time, which is not evidence of a stall."
+            )
+
+    # The footnote is long enough to run off a 12in canvas at 7.5pt; wrap it so
+    # the honest caveat stays fully readable instead of being clipped.
+    note = textwrap.fill(note, width=170)
+    note_lines = note.count("\n") + 1
+    extra = 0.13 * (note_lines - 1)  # room for the wrapped lines
+
+    y = lambda inches: inches / fig_h  # inches from the figure bottom
+    fig.text(
+        0.012,
+        y(reserve_in - 0.62 + extra),
+        line1 + "\n" + line2,
+        fontsize=9,
+        va="bottom",
+        ha="left",
+        color="#212121",
+        linespacing=1.6,
+    )
+    verdict, why, vcolor = _panel_verdict(at, pq)
+    # Verdict and rationale on separate lines: some labels are long enough that
+    # a single line runs off the canvas and truncates the caveat mid-word.
+    fig.text(
+        0.012,
+        y(0.38 + extra),
+        f"classification:  {verdict.upper()}\n{textwrap.fill(why, width=118)}",
+        fontsize=9.5,
+        va="bottom",
+        ha="left",
+        color=vcolor,
+        weight="bold",
+        linespacing=1.45,
+        bbox=dict(boxstyle="round,pad=0.35", fc="white", ec=vcolor, lw=1.3, alpha=0.95),
+    )
+    fig.text(
+        0.012,
+        y(0.10),
+        note,
+        fontsize=7.5,
+        color="#616161",
+        va="bottom",
+        linespacing=1.5,
+    )
 
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout(rect=(0, y(reserve_in), 1, 1))
@@ -1670,9 +2025,12 @@ def plot_app_qoe_summary(at: AppTraffic, cfg: ExperimentConfig, out: Path,
     return out
 
 
-def generate_run_plots(attribution: CaptureAttribution, cfg: ExperimentConfig,
-                       run_dir: Path,
-                       player_qoe: Optional[dict[str, dict]] = None) -> dict[str, str]:
+def generate_run_plots(
+    attribution: CaptureAttribution,
+    cfg: ExperimentConfig,
+    run_dir: Path,
+    player_qoe: Optional[dict[str, dict]] = None,
+) -> dict[str, str]:
     """Every plot for one run — called automatically when a run finishes.
 
     Per app: `throughput_<app>[_<direction>].png` and `qoe_summary_<app>...png`.
@@ -1690,22 +2048,32 @@ def generate_run_plots(attribution: CaptureAttribution, cfg: ExperimentConfig,
             at = attribution.traffic(app, direction)
             if at is None or not at.times or at.avg_throughput_mbps is None:
                 pq = (player_qoe or {}).get(app) or {}
-                why = (pq.get("reason") or attribution.note
-                       or "no traffic attributed to this app")
+                why = (
+                    pq.get("reason")
+                    or attribution.note
+                    or "no traffic attributed to this app"
+                )
                 print(f"    · {app} ({direction}): no plot — {why}")
                 continue
             sfx = f"_{direction}" if both else ""
-            tp = plot_app_throughput(at, cfg, run_dir / f"throughput_{app}{sfx}.png",
-                                     both_directions=both)
+            tp = plot_app_throughput(
+                at, cfg, run_dir / f"throughput_{app}{sfx}.png", both_directions=both
+            )
             if tp:
                 plots[f"throughput_{app}{sfx}"] = str(tp)
             qs = plot_app_qoe_summary(
-                at, cfg, run_dir / f"qoe_summary_{app}{sfx}.png",
-                player_qoe=(player_qoe or {}).get(app), bin_s=attribution.bin_s)
+                at,
+                cfg,
+                run_dir / f"qoe_summary_{app}{sfx}.png",
+                player_qoe=(player_qoe or {}).get(app),
+                bin_s=attribution.bin_s,
+            )
             if qs:
                 plots[f"qoe_summary_{app}{sfx}"] = str(qs)
-            print(f"    · {app} ({direction}): throughput + qoe_summary saved "
-                  f"[{at.classification}, avg {at.avg_throughput_mbps:.2f} Mbps]")
+            print(
+                f"    · {app} ({direction}): throughput + qoe_summary saved "
+                f"[{at.classification}, avg {at.avg_throughput_mbps:.2f} Mbps]"
+            )
     return plots
 
 
@@ -1722,9 +2090,9 @@ def app_verdict(network_verdict: str, player_qoe: Optional[dict[str, Any]]) -> s
         if pq.get("status") == "ok" and pq.get("video_resolution_p"):
             return "served"
         return "failed_to_deliver"
-    if pq.get("status") in ("no_data", "skipped") and str(pq.get("reason", "")).startswith(
-        "no_playback"
-    ):
+    if pq.get("status") in ("no_data", "skipped") and str(
+        pq.get("reason", "")
+    ).startswith("no_playback"):
         return "failed_to_deliver"
     return network_verdict
 
@@ -1759,23 +2127,33 @@ def replot_run(run_dir: Path | str, bin_s: float = 1.0) -> dict[str, str]:
     at = attribute_capture(pcap, cfg.apps, cfg.bandwidth_mbps, bin_s=bin_s)
     # Carry the record's real player QoE into the plots, so a re-render shows the
     # player-side panels rather than falling back to the network proxy view.
-    plots = generate_run_plots(at, cfg, run_dir,
-                               player_qoe=(rec.get("player_qoe") or {}))
+    plots = generate_run_plots(
+        at, cfg, run_dir, player_qoe=(rec.get("player_qoe") or {})
+    )
     rec.setdefault("artifacts", {})["plots"] = plots
     # Preserve the player-aware verdict: recomputing from the pcap alone would
     # silently downgrade a `failed_to_deliver` app back to the network's "served".
     pq_all = rec.get("player_qoe") or {}
     rec["per_app_stats"] = {
-        a: {**{d: (at.traffic(a, d) or AppTraffic(a, d)).as_record()
-               for d in ("download", "upload")},
+        a: {
+            **{
+                d: (at.traffic(a, d) or AppTraffic(a, d)).as_record()
+                for d in ("download", "upload")
+            },
             "plotted_directions": app_plot_directions(a),
             "classification": app_verdict(
-                (at.traffic(a, app_plot_directions(a)[0])
-                 or AppTraffic(a, "download")).classification,
-                pq_all.get(a)),
+                (
+                    at.traffic(a, app_plot_directions(a)[0])
+                    or AppTraffic(a, "download")
+                ).classification,
+                pq_all.get(a),
+            ),
             "attribution_method": at.method,
             "player_qoe_status": (pq_all.get(a) or {}).get("status"),
-            "player_qoe_available": bool((pq_all.get(a) or {}).get("player_qoe_available"))}
+            "player_qoe_available": bool(
+                (pq_all.get(a) or {}).get("player_qoe_available")
+            ),
+        }
         for a in cfg.apps
     }
     rec["capture_buckets_mb"] = at.bucket_mb
@@ -1783,7 +2161,9 @@ def replot_run(run_dir: Path | str, bin_s: float = 1.0) -> dict[str, str]:
     rec["per_app_plots"] = True
     rec["player_qoe_available"] = bool(
         qoe_lib.any_real_qoe(rec.get("player_qoe") or {})
-        if (qoe_lib and rec.get("player_qoe")) else rec.get("player_qoe_available", False))
+        if (qoe_lib and rec.get("player_qoe"))
+        else rec.get("player_qoe_available", False)
+    )
     rec_path.write_text(json.dumps(rec, indent=2, default=str))
     print(f"  ✓ replotted {run_dir} ({len(plots)} plots)")
     return plots
@@ -1803,19 +2183,30 @@ def plot_run_throughput(*_args: Any, **_kwargs: Any) -> None:
     )
 
 
-def plot_app_qoe_timeseries(app: str, cfg: ExperimentConfig, out: Path) -> Optional[Path]:
-    return None   # no player-QoE time series on the deployed engine
+def plot_app_qoe_timeseries(
+    app: str, cfg: ExperimentConfig, out: Path
+) -> Optional[Path]:
+    return None  # no player-QoE time series on the deployed engine
 
 
 # ── metric lookup for sweep plots ────────────────────────────────────────────
 # Per-app first: a sweep point's "throughput" is that app's own throughput in its
 # plotted direction, not the link total (which also carries the other apps and
 # the browser's own downloads).
-_NET_METRICS = {"avg_throughput_mbps", "peak_throughput_mbps", "p95_throughput_mbps",
-                "delivered_fraction", "stall_seconds", "total_mb", "mean_over_cap"}
+_NET_METRICS = {
+    "avg_throughput_mbps",
+    "peak_throughput_mbps",
+    "p95_throughput_mbps",
+    "delivered_fraction",
+    "stall_seconds",
+    "total_mb",
+    "mean_over_cap",
+}
 
 
-def _metric_of(rec: dict[str, Any], metric: str, app: Optional[str] = None) -> Optional[float]:
+def _metric_of(
+    rec: dict[str, Any], metric: str, app: Optional[str] = None
+) -> Optional[float]:
     """One metric from one run record.
 
     `app` picks a specific app; with `app=None` the value is averaged over the
@@ -1846,8 +2237,7 @@ def _metric_of(rec: dict[str, Any], metric: str, app: Optional[str] = None) -> O
     return None
 
 
-def _sweep_line(records, xkey_fn, metric, xlabel, out: Path,
-                app: Optional[str] = None):
+def _sweep_line(records, xkey_fn, metric, xlabel, out: Path, app: Optional[str] = None):
     plt = _plt()
     if plt is None or not records:
         return None
@@ -1855,50 +2245,83 @@ def _sweep_line(records, xkey_fn, metric, xlabel, out: Path,
     for r in records:
         v = _metric_of(r, metric, app=app)
         if v is not None:
-            xs.append(xkey_fn(r)); ys.append(v)
+            xs.append(xkey_fn(r))
+            ys.append(v)
     if not xs:
         print(f"  (no data for metric '{metric}')")
         return None
     xs, ys = zip(*sorted(zip(xs, ys)))
     fig, ax = plt.subplots(figsize=(9, 5))
     ax.plot(xs, ys, marker="o", color=app_color(app) if app else "#2196F3")
-    ax.set_xlabel(xlabel); ax.set_ylabel(metric.replace("_", " "))
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(metric.replace("_", " "))
     who = f" — {display_name(app)}" if app else ""
     ax.set_title(f"{metric.replace('_',' ')} vs {xlabel}{who}")
     ax.grid(True, alpha=0.3)
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout(); fig.savefig(out, dpi=150); plt.close(fig)
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
     print(f"Saved: {out}")
     return out
 
 
-def plot_qoe_vs_bandwidth(records, out: Path, metric: str = "avg_throughput_mbps",
-                          app: Optional[str] = None):
-    return _sweep_line(records, lambda r: r["config"]["bandwidth_mbps"], metric,
-                       "bandwidth (Mbps)", out, app=app)
+def plot_qoe_vs_bandwidth(
+    records, out: Path, metric: str = "avg_throughput_mbps", app: Optional[str] = None
+):
+    return _sweep_line(
+        records,
+        lambda r: r["config"]["bandwidth_mbps"],
+        metric,
+        "bandwidth (Mbps)",
+        out,
+        app=app,
+    )
 
 
-def plot_qoe_vs_latency(records, out: Path, metric: str = "stall_seconds",
-                        app: Optional[str] = None):
-    return _sweep_line(records, lambda r: r["config"]["latency_ms"], metric,
-                       "latency (ms)", out, app=app)
+def plot_qoe_vs_latency(
+    records, out: Path, metric: str = "stall_seconds", app: Optional[str] = None
+):
+    return _sweep_line(
+        records,
+        lambda r: r["config"]["latency_ms"],
+        metric,
+        "latency (ms)",
+        out,
+        app=app,
+    )
 
 
-def plot_qoe_vs_concurrency(records, out: Path, metric: str = "avg_throughput_mbps",
-                            app: Optional[str] = None):
-    return _sweep_line(records, lambda r: len(r["config"]["apps"]), metric,
-                       "concurrency (#apps)", out, app=app)
+def plot_qoe_vs_concurrency(
+    records, out: Path, metric: str = "avg_throughput_mbps", app: Optional[str] = None
+):
+    return _sweep_line(
+        records,
+        lambda r: len(r["config"]["apps"]),
+        metric,
+        "concurrency (#apps)",
+        out,
+        app=app,
+    )
 
 
 def plot_throughput_vs_bandwidth(records, out: Path, app: Optional[str] = None):
-    return _sweep_line(records, lambda r: r["config"]["bandwidth_mbps"],
-                       "avg_throughput_mbps", "configured bandwidth (Mbps)", out,
-                       app=app)
+    return _sweep_line(
+        records,
+        lambda r: r["config"]["bandwidth_mbps"],
+        "avg_throughput_mbps",
+        "configured bandwidth (Mbps)",
+        out,
+        app=app,
+    )
 
 
-def plot_group_comparison(groups: dict[str, list[dict[str, Any]]], out: Path,
-                          metric: str = "avg_throughput_mbps",
-                          app: Optional[str] = None):
+def plot_group_comparison(
+    groups: dict[str, list[dict[str, Any]]],
+    out: Path,
+    metric: str = "avg_throughput_mbps",
+    app: Optional[str] = None,
+):
     """Bar chart comparing a metric across labelled groups (AQM, equity, ...).
 
     `app` restricts the comparison to one app's own traffic; with `app=None` the
@@ -1909,37 +2332,60 @@ def plot_group_comparison(groups: dict[str, list[dict[str, Any]]], out: Path,
         return None
     labels, vals = [], []
     for label, recs in groups.items():
-        ms = [_metric_of(r, metric, app=app) for r in recs
-              if _metric_of(r, metric, app=app) is not None]
+        ms = [
+            _metric_of(r, metric, app=app)
+            for r in recs
+            if _metric_of(r, metric, app=app) is not None
+        ]
         if ms:
-            labels.append(label); vals.append(sum(ms) / len(ms))
+            labels.append(label)
+            vals.append(sum(ms) / len(ms))
     if not labels:
         print(f"  (no data for metric '{metric}')")
         return None
     fig, ax = plt.subplots(figsize=(8, 5))
     bars = ax.bar(labels, vals, color=plt.cm.tab10(range(len(labels))))
     for b, v in zip(bars, vals):
-        ax.annotate(f"{v:.2f}", xy=(b.get_x() + b.get_width() / 2, v),
-                    xytext=(0, 3), textcoords="offset points", ha="center", fontsize=9)
+        ax.annotate(
+            f"{v:.2f}",
+            xy=(b.get_x() + b.get_width() / 2, v),
+            xytext=(0, 3),
+            textcoords="offset points",
+            ha="center",
+            fontsize=9,
+        )
     ax.set_ylabel(metric.replace("_", " "))
-    ax.set_title(f"{metric.replace('_',' ')} comparison"
-                 + (f" — {display_name(app)}" if app else ""))
+    ax.set_title(
+        f"{metric.replace('_',' ')} comparison"
+        + (f" — {display_name(app)}" if app else "")
+    )
     out.parent.mkdir(parents=True, exist_ok=True)
-    fig.tight_layout(); fig.savefig(out, dpi=150); plt.close(fig)
+    fig.tight_layout()
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
     print(f"Saved: {out}")
     return out
 
 
-def plot_aqm_comparison(records_by_aqm, out: Path, metric: str = "avg_throughput_mbps",
-                        app: Optional[str] = None):
+def plot_aqm_comparison(
+    records_by_aqm,
+    out: Path,
+    metric: str = "avg_throughput_mbps",
+    app: Optional[str] = None,
+):
     return plot_group_comparison(records_by_aqm, out, metric, app=app)
 
 
-def plot_equity_comparison(well_served, redlined, out: Path,
-                           metric: str = "avg_throughput_mbps",
-                           app: Optional[str] = None):
+def plot_equity_comparison(
+    well_served,
+    redlined,
+    out: Path,
+    metric: str = "avg_throughput_mbps",
+    app: Optional[str] = None,
+):
     return plot_group_comparison(
-        {"well-served": [well_served], "redlined": [redlined]}, out, metric, app=app)
+        {"well-served": [well_served], "redlined": [redlined]}, out, metric, app=app
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -1973,11 +2419,16 @@ def substrate_setup_per_app_marks(apps: list[str]) -> Optional[dict[str, str]]:
     """
     if len(apps) < 2:
         return None
-    marks = [{"app": a, "mark": i + 1, "bind_ip": _alias_ip_for(i),
-              "proxy_port": 8081 + i} for i, a in enumerate(apps)]
+    marks = [
+        {"app": a, "mark": i + 1, "bind_ip": _alias_ip_for(i), "proxy_port": 8081 + i}
+        for i, a in enumerate(apps)
+    ]
     try:
-        r = requests.post(f"{SUBSTRATE}/shape/per_app_marks",
-                          json={"app_marks": marks}, timeout=HTTP_TIMEOUT)
+        r = requests.post(
+            f"{SUBSTRATE}/shape/per_app_marks",
+            json={"app_marks": marks},
+            timeout=HTTP_TIMEOUT,
+        )
         if r.status_code == 404:
             return None
         r.raise_for_status()
@@ -2012,8 +2463,10 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
     concurrent = len(apps) > 1
 
     print(f"▶ DIRECT run: {cfg.slug}")
-    print(f"  cap={cfg.bandwidth_mbps}Mbps lat={cfg.latency_ms}ms loss={cfg.loss_pct}% "
-          f"aqm={cfg.aqm} cca={cfg.cca} dur={cfg.duration_s}s apps={apps}")
+    print(
+        f"  cap={cfg.bandwidth_mbps}Mbps lat={cfg.latency_ms}ms loss={cfg.loss_pct}% "
+        f"aqm={cfg.aqm} cca={cfg.cca} dur={cfg.duration_s}s apps={apps}"
+    )
 
     print("  • shaping ...")
     shape = substrate_shape(cfg, verify=not concurrent)
@@ -2042,12 +2495,16 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
         player_qoe = collect_player_qoe(cfg, run_dir)
         for a in browser_apps:
             q = player_qoe.get(a) or {}
-            run_results[a] = {"result": [{"success": q.get("status") == "ok"}],
-                              "qoe_status": q.get("status")}
+            run_results[a] = {
+                "result": [{"success": q.get("status") == "ok"}],
+                "qoe_status": q.get("status"),
+            }
         apps_for_substrate = shell_apps
     else:
         if browser_apps and not COLLECT_ENABLED:
-            print("  • collector disabled (PRAMANA_COLLECT=0) — substrate workflows only")
+            print(
+                "  • collector disabled (PRAMANA_COLLECT=0) — substrate workflows only"
+            )
         elif browser_apps:
             print(f"  ! {shared_repo_status()}")
         apps_for_substrate = apps
@@ -2055,8 +2512,14 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
     apps = apps_for_substrate if apps_for_substrate else []
     if not apps:
         apps = []
-    print(f"  • running {len(apps)} substrate workflow(s) "
-          f"({'concurrent' if len(apps) > 1 else 'solo'}) ...") if apps else None
+    (
+        print(
+            f"  • running {len(apps)} substrate workflow(s) "
+            f"({'concurrent' if len(apps) > 1 else 'solo'}) ..."
+        )
+        if apps
+        else None
+    )
     concurrent = len(apps) > 1
     if concurrent:
         with ThreadPoolExecutor(max_workers=len(apps)) as ex:
@@ -2085,7 +2548,7 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
             run_results[a] = {"status": "failed", "error": str(exc)}
             print(f"    ✗ {a} failed: {exc}")
 
-    apps = cfg.apps          # collector/substrate split is done; report on all apps
+    apps = cfg.apps  # collector/substrate split is done; report on all apps
 
     print("  • finalising capture + downloading pcap ...")
     substrate_capture_wait(capture_id, timeout_s=cap_duration + 60)
@@ -2094,11 +2557,15 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
     if got:
         # Only drop the worker-side copy once ours is safely on disk.
         substrate_capture_delete(capture_id)
-        print(f"  • pcap saved → {local_pcap} ({local_pcap.stat().st_size / 1e6:.1f} MB)")
+        print(
+            f"  • pcap saved → {local_pcap} ({local_pcap.stat().st_size / 1e6:.1f} MB)"
+        )
     else:
-        print(f"  ! PCAP DOWNLOAD FAILED — the worker-side capture {capture_id} is "
-              f"being KEPT so the raw evidence is not lost. Retrieve it with: "
-              f"curl -o {local_pcap} {SUBSTRATE}/capture/{capture_id}/pcap")
+        print(
+            f"  ! PCAP DOWNLOAD FAILED — the worker-side capture {capture_id} is "
+            f"being KEPT so the raw evidence is not lost. Retrieve it with: "
+            f"curl -o {local_pcap} {SUBSTRATE}/capture/{capture_id}/pcap"
+        )
     if local_ip_map:
         substrate_teardown_per_app_marks()
 
@@ -2106,18 +2573,23 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
     net = analyze_pcap_netstats(local_pcap, cfg.bandwidth_mbps) if got else NetStats()
     if net.avg_throughput_mbps is not None:
         verdict = "OK" if net.shaping_verified else "OVER CAP"
-        print(f"  • shaping check: avg {net.avg_throughput_mbps:.2f} / cap "
-              f"{cfg.bandwidth_mbps:g} Mbps ({net.shaping_error_pct:+.1f}%) → {verdict}")
+        print(
+            f"  • shaping check: avg {net.avg_throughput_mbps:.2f} / cap "
+            f"{cfg.bandwidth_mbps:g} Mbps ({net.shaping_error_pct:+.1f}%) → {verdict}"
+        )
     else:
         print("  • shaping check: no packets captured")
 
     # ── per-app split (never a combined view) ────────────────────────────────
     print("  • splitting capture per app ...")
-    attribution = attribute_capture(local_pcap, apps, cfg.bandwidth_mbps,
-                                    local_ip_map=local_ip_map)
+    attribution = attribute_capture(
+        local_pcap, apps, cfg.bandwidth_mbps, local_ip_map=local_ip_map
+    )
     if attribution.method != "none":
-        print(f"    method={attribution.method}  local={attribution.local_ips}  "
-              f"{100 * attribution.attributed_fraction:.1f}% of bytes attributed")
+        print(
+            f"    method={attribution.method}  local={attribution.local_ips}  "
+            f"{100 * attribution.attributed_fraction:.1f}% of bytes attributed"
+        )
         for bucket, mb in list(attribution.bucket_mb.items())[:6]:
             print(f"      {bucket:16s} {mb:9.2f} MB")
 
@@ -2125,14 +2597,22 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
     per_app_stats: dict[str, Any] = {}
     for a in apps:
         dirs = app_plot_directions(a)
-        stats = {d: (attribution.traffic(a, d) or AppTraffic(a, d)).as_record()
-                 for d in ("download", "upload")}
+        stats = {
+            d: (attribution.traffic(a, d) or AppTraffic(a, d)).as_record()
+            for d in ("download", "upload")
+        }
         # The plotted direction is the one that defines the verdict: download for
         # video, and for calls the worse of the two directions.
-        verdicts = [(attribution.traffic(a, d) or AppTraffic(a, d)).classification
-                    for d in dirs]
-        verdict = "starved" if "starved" in verdicts else (
-            "no_traffic" if all(v == "no_traffic" for v in verdicts) else "served")
+        verdicts = [
+            (attribution.traffic(a, d) or AppTraffic(a, d)).classification for d in dirs
+        ]
+        verdict = (
+            "starved"
+            if "starved" in verdicts
+            else (
+                "no_traffic" if all(v == "no_traffic" for v in verdicts) else "served"
+            )
+        )
         # A network verdict cannot see whether the video actually played. When
         # real player QoE exists it overrides: a session whose playback never
         # advanced is failed-to-deliver, however much traffic the link carried.
@@ -2142,16 +2622,29 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
         stats["classification"] = verdict
         stats["player_qoe_status"] = pq_a.get("status")
         stats["attribution_method"] = attribution.method
-        stats["player_qoe_available"] = False
+        # Mirror the app's actual player payload. Hardcoding False here made
+        # every record disagree with its own player_qoe block, so any consumer
+        # reading this side concluded "no player data" for runs that had it.
+        stats["player_qoe_available"] = bool(pq_a.get("player_qoe_available"))
         per_app_stats[a] = stats
-        per_app[a] = {"type": APP_REGISTRY[a]["type"], "traffic_verdict": verdict,
-                      "player_qoe_available": bool((player_qoe.get(a) or {}).get("player_qoe_available")),
-                      "qoe": player_qoe.get(a) or {}}
+        per_app[a] = {
+            "type": APP_REGISTRY[a]["type"],
+            "traffic_verdict": verdict,
+            "player_qoe_available": bool(
+                (player_qoe.get(a) or {}).get("player_qoe_available")
+            ),
+            "qoe": player_qoe.get(a) or {},
+        }
         dl = attribution.traffic(a, "download")
-        print(f"    · {a}: {verdict}"
-              + (f" (dl avg {dl.avg_throughput_mbps:.2f} / peak {dl.peak_throughput_mbps:.2f} Mbps, "
-                 f"delivered {100 * (dl.delivered_fraction or 0):.0f}%)"
-                 if dl and dl.avg_throughput_mbps is not None else ""))
+        print(
+            f"    · {a}: {verdict}"
+            + (
+                f" (dl avg {dl.avg_throughput_mbps:.2f} / peak {dl.peak_throughput_mbps:.2f} Mbps, "
+                f"delivered {100 * (dl.delivered_fraction or 0):.0f}%)"
+                if dl and dl.avg_throughput_mbps is not None
+                else ""
+            )
+        )
 
     # ── plots, automatically, for every run ──────────────────────────────────
     print("  • generating per-app plots ...")
@@ -2159,32 +2652,46 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
         plots = generate_run_plots(attribution, cfg, run_dir, player_qoe=player_qoe)
     except Exception as exc:  # a plotting bug must never lose the run's evidence
         plots = {}
-        print(f"    ! plot generation failed ({type(exc).__name__}: {exc}); "
-              f"the pcap, per-app stats and record are still saved — "
-              f"re-render later with replot_run('{run_dir}')")
+        print(
+            f"    ! plot generation failed ({type(exc).__name__}: {exc}); "
+            f"the pcap, per-app stats and record are still saved — "
+            f"re-render later with replot_run('{run_dir}')"
+        )
 
     overall_ok = net.shaping_verified or net.avg_throughput_mbps is None
     for a in apps:
         dl = attribution.traffic(a, "download")
-        telemetry_post_result(cfg.experiment_id, a, cfg,
-                              measured_throughput=(dl.avg_throughput_mbps if dl else None),
-                              qoe=_telemetry_qoe(player_qoe.get(a) or {}),
-                              pcap_path=str(local_pcap),
-                              status="success" if overall_ok else "shaping_failed")
+        telemetry_post_result(
+            cfg.experiment_id,
+            a,
+            cfg,
+            measured_throughput=(dl.avg_throughput_mbps if dl else None),
+            qoe=_telemetry_qoe(player_qoe.get(a) or {}),
+            pcap_path=str(local_pcap),
+            status="success" if overall_ok else "shaping_failed",
+        )
 
     record = {
         "experiment_id": cfg.experiment_id,
         "slug": cfg.slug,
         "mode": "direct",
         "timestamp": time.time(),
-        "config": {**{k: v for k, v in asdict(cfg).items()
-                      if k not in ("experiment_id", "slug")},
-                   "concurrency": cfg.concurrency},
+        "config": {
+            **{
+                k: v
+                for k, v in asdict(cfg).items()
+                if k not in ("experiment_id", "slug")
+            },
+            "concurrency": cfg.concurrency,
+        },
         # ── dataset conventions ─────────────────────────────────────────────
         # Throughput is reported and plotted per app, never combined; upload and
         # download are kept apart (video shows download only).
         "plot_combined_throughput": False,
         "per_app_plots": True,
+        # Self-identifying: whether YouTube's rendition was pinned for this run
+        # or left to ABR. Forced and auto runs must never be pooled.
+        "force_max_quality": bool(cfg.force_max_quality),
         # Real, player-side QoE per app (shared/qoe.py against the QoEMetrics
         # definition in shared/models/README.md). Null fields are signals the
         # player genuinely does not expose — never placeholders.
@@ -2193,13 +2700,16 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
         # stats-logging build is deployed this flips to true and the QoE summary
         # plot gains a player-side panel automatically.
         "player_qoe_available": bool(
-            qoe_lib and qoe_lib.any_real_qoe(player_qoe) if player_qoe else False),
+            qoe_lib and qoe_lib.any_real_qoe(player_qoe) if player_qoe else False
+        ),
         "limitations": {
             "player_qoe_available": bool(
-                qoe_lib and qoe_lib.any_real_qoe(player_qoe) if player_qoe else False),
+                qoe_lib and qoe_lib.any_real_qoe(player_qoe) if player_qoe else False
+            ),
             "player_qoe_source": (
                 "real Chrome (Xvfb + SeleniumBase/undetected-chromedriver) driven "
-                "inside the shaped ns1 namespace; metrics derived by shared/qoe.py"),
+                "inside the shaped ns1 namespace; metrics derived by shared/qoe.py"
+            ),
             "player_qoe_skipped": {
                 a: (player_qoe.get(a) or {}).get("reason")
                 for a in cfg.apps
@@ -2213,7 +2723,8 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
                 "local_alias_ip = exact split by each app's namespace IP; "
                 "remote_hostname = split by remote endpoint identified from "
                 "in-capture DNS answers + TLS SNI (the deployed worker runs all "
-                "browser apps in one namespace, so there is only one local IP)"),
+                "browser apps in one namespace, so there is only one local IP)"
+            ),
             "attributed_byte_fraction": attribution.attributed_fraction,
         },
         "network_stats": asdict(net),
@@ -2222,16 +2733,26 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
         "capture_top_hosts_bytes": attribution.host_bytes,
         "shaping_applied": shape.get("bottleneck_state", shape),
         "per_app": per_app,
-        "workflow_ok": all((r.get("result") or [{}])[0].get("success")
-                           for r in run_results.values() if isinstance(r, dict)),
-        "artifacts": {"pcap": str(local_pcap) if got else "",
-                      "pcap_saved": bool(got),
-                      "plots": plots, "dir": str(run_dir)},
+        "workflow_ok": all(
+            (r.get("result") or [{}])[0].get("success")
+            for r in run_results.values()
+            if isinstance(r, dict)
+        ),
+        "artifacts": {
+            "pcap": str(local_pcap) if got else "",
+            "pcap_saved": bool(got),
+            "plots": plots,
+            "dir": str(run_dir),
+        },
     }
 
     # Write the record (and the pcap and plots above) BEFORE any strict-shaping
     # abort: a run that failed verification is still raw evidence worth keeping.
-    if STRICT_SHAPING and net.avg_throughput_mbps is not None and not net.shaping_verified:
+    if (
+        STRICT_SHAPING
+        and net.avg_throughput_mbps is not None
+        and not net.shaping_verified
+    ):
         record["shaping_verification_failed"] = True
         _write_record(record, run_dir)
         print(f"  ✓ saved → {run_dir} (flagged: shaping verification failed)")
@@ -2244,8 +2765,10 @@ def run_direct(cfg: ExperimentConfig) -> dict[str, Any]:
 
     _write_record(record, run_dir)
     print(f"  ✓ saved → {run_dir}")
-    print(f"    pcap: {'capture.pcap' if got else 'MISSING'} | "
-          f"plots: {len(plots)} | record.json")
+    print(
+        f"    pcap: {'capture.pcap' if got else 'MISSING'} | "
+        f"plots: {len(plots)} | record.json"
+    )
     return record
 
 
@@ -2269,7 +2792,9 @@ def _poll(orch_id: str) -> dict[str, Any]:
     body: dict[str, Any] = {}
     started = time.time()
     for _ in range(_MAX_POLLS):
-        body = requests.get(f"{ORCH}/orchestration/{orch_id}", timeout=HTTP_TIMEOUT).json()
+        body = requests.get(
+            f"{ORCH}/orchestration/{orch_id}", timeout=HTTP_TIMEOUT
+        ).json()
         status = body.get("status")
         if status != last:
             print(f"  {status} ... ({int(time.time() - started)}s)")
@@ -2281,8 +2806,14 @@ def _poll(orch_id: str) -> dict[str, Any]:
 
 
 def _orch_experiment_ids(orch_id: str) -> list[str]:
-    body = requests.get(f"{ORCH}/orchestration/{orch_id}/results", timeout=HTTP_TIMEOUT).json()
-    return [r.get("experiment_id") for r in body.get("results", []) if r.get("experiment_id")]
+    body = requests.get(
+        f"{ORCH}/orchestration/{orch_id}/results", timeout=HTTP_TIMEOUT
+    ).json()
+    return [
+        r.get("experiment_id")
+        for r in body.get("results", [])
+        if r.get("experiment_id")
+    ]
 
 
 def _telemetry_rows(experiment_id: str, retries: int = 4) -> list[dict[str, Any]]:
@@ -2297,8 +2828,9 @@ def _telemetry_rows(experiment_id: str, retries: int = 4) -> list[dict[str, Any]
     return rows
 
 
-def _throughput_from_pcap_path(pcap_path: Optional[str],
-                               cap_mbps: Optional[float]) -> Optional[float]:
+def _throughput_from_pcap_path(
+    pcap_path: Optional[str], cap_mbps: Optional[float]
+) -> Optional[float]:
     """Fallback: compute avg throughput (Mbps) directly from a captured pcap.
 
     ``pcap_path`` is whatever telemetry recorded. It is read with the
@@ -2361,7 +2893,8 @@ def run_and_display(intent: str, context: Optional[dict] = None) -> None:
         tp_note = ""
         if _is_missing(throughput):
             computed = _throughput_from_pcap_path(
-                row.get("pcap_path"), row.get("configured_capacity"))
+                row.get("pcap_path"), row.get("configured_capacity")
+            )
             if computed is not None:
                 throughput = computed
                 tp_note = "  (computed from pcap)"
@@ -2395,9 +2928,11 @@ def _intent_text_from_cfg(cfg: ExperimentConfig) -> str:
     apps = " and ".join(cfg.apps)
     verb = "run" if len(cfg.apps) == 1 else "run concurrently"
     loss = f", {cfg.loss_pct:g}% loss" if cfg.loss_pct else ""
-    return (f"{verb} {apps} on a {cfg.bandwidth_mbps:g} Mbps bottleneck with "
-            f"{cfg.latency_ms:g} ms latency{loss} for {cfg.duration_s} seconds "
-            f"using {cfg.cca} congestion control and a {cfg.aqm} queue.")
+    return (
+        f"{verb} {apps} on a {cfg.bandwidth_mbps:g} Mbps bottleneck with "
+        f"{cfg.latency_ms:g} ms latency{loss} for {cfg.duration_s} seconds "
+        f"using {cfg.cca} congestion control and a {cfg.aqm} queue."
+    )
 
 
 def run_intent(cfg: ExperimentConfig) -> dict[str, Any]:
@@ -2419,13 +2954,15 @@ def run_experiment(cfg: ExperimentConfig, mode: str = "direct") -> dict[str, Any
     raise ValueError("mode must be 'direct' or 'intent'")
 
 
-def run_sweep(base: ExperimentConfig, axis: str, values: Iterable[Any],
-              mode: str = "direct") -> list[dict[str, Any]]:
+def run_sweep(
+    base: ExperimentConfig, axis: str, values: Iterable[Any], mode: str = "direct"
+) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     values = list(values)
     print(f"═══ SWEEP over {axis}: {values} ═══")
-    base_fields = {k: v for k, v in asdict(base).items()
-                   if k not in ("experiment_id", "slug")}
+    base_fields = {
+        k: v for k, v in asdict(base).items() if k not in ("experiment_id", "slug")
+    }
     for i, val in enumerate(values, 1):
         cfg = ExperimentConfig(**{**base_fields, axis: val})
         cfg.tag = base.tag or f"sweep_{axis}"
@@ -2466,21 +3003,28 @@ def stack_health() -> dict[str, str]:
 
 
 def show_history(limit: int = 15, application: str | None = None) -> Any:
-    params: dict[str, Any] = {"limit": limit, "sort_by": "created_at", "sort_order": "desc"}
+    params: dict[str, Any] = {
+        "limit": limit,
+        "sort_by": "created_at",
+        "sort_order": "desc",
+    }
     if application:
         params["application"] = application
     rows = telemetry_get_results(**params)
     if not rows:
         print("No experiments recorded in telemetry yet.")
         return None
-    friendly = [{
-        "when": (r.get("created_at") or "")[:19].replace("T", " "),
-        "app": _app_name(r.get("experiment_id"), r.get("application") or "?"),
-        "status": r.get("status"),
-        "capacity (Mbps)": _num(r.get("configured_capacity")),
-        "latency (ms)": _num(r.get("configured_latency")),
-        "throughput (Mbps)": _num(r.get("measured_throughput")),
-    } for r in rows]
+    friendly = [
+        {
+            "when": (r.get("created_at") or "")[:19].replace("T", " "),
+            "app": _app_name(r.get("experiment_id"), r.get("application") or "?"),
+            "status": r.get("status"),
+            "capacity (Mbps)": _num(r.get("configured_capacity")),
+            "latency (ms)": _num(r.get("configured_latency")),
+            "throughput (Mbps)": _num(r.get("measured_throughput")),
+        }
+        for r in rows
+    ]
     print(f"{len(friendly)} most recent experiment(s) in telemetry:")
     if pd is not None:
         df = pd.DataFrame(friendly)
@@ -2516,29 +3060,34 @@ def show_player_qoe(record: dict[str, Any]) -> Any:
             note = q.get("reason") or ""
             tr = q.get("transfer") or {}
             if tr:
-                note = (f"transfer only: {fmt(tr.get('bytes'))} bytes in "
-                        f"{fmt(tr.get('seconds'))}s @ "
-                        f"{fmt(tr.get('mean_throughput_mbps'))} Mbps")
-            rows.append({"app": app, "status": q.get("status"),
-                         "note": note[:80]})
+                note = (
+                    f"transfer only: {fmt(tr.get('bytes'))} bytes in "
+                    f"{fmt(tr.get('seconds'))}s @ "
+                    f"{fmt(tr.get('mean_throughput_mbps'))} Mbps"
+                )
+            rows.append({"app": app, "status": q.get("status"), "note": note[:80]})
             continue
-        rows.append({
-            "app": app,
-            "status": "ok",
-            "resolution": fmt(q.get("video_resolution_p"), sfx="p"),
-            "startup": fmt(q.get("video_startup_time_ms"), 0, " ms"),
-            "rebuffers": fmt(q.get("rebuffer_events")),
-            "rebuf_time": fmt(q.get("rebuffer_duration_ms"), 0, " ms"),
-            "dropped": fmt(q.get("dropped_frame_pct"), 2, "%"),
-            "fps": fmt(q.get("frame_rate_fps"), 1),
-            "bitrate": fmt(q.get("mean_bitrate_mbps"), 2, " Mbps"),
-            "buffer": fmt(q.get("mean_buffer_ahead_secs"), 1, " s"),
-            "watched": fmt(q.get("watched_seconds"), 0, " s"),
-        })
+        rows.append(
+            {
+                "app": app,
+                "status": "ok",
+                "resolution": fmt(q.get("video_resolution_p"), sfx="p"),
+                "startup": fmt(q.get("video_startup_time_ms"), 0, " ms"),
+                "rebuffers": fmt(q.get("rebuffer_events")),
+                "rebuf_time": fmt(q.get("rebuffer_duration_ms"), 0, " ms"),
+                "dropped": fmt(q.get("dropped_frame_pct"), 2, "%"),
+                "fps": fmt(q.get("frame_rate_fps"), 1),
+                "bitrate": fmt(q.get("mean_bitrate_mbps"), 2, " Mbps"),
+                "buffer": fmt(q.get("mean_buffer_ahead_secs"), 1, " s"),
+                "watched": fmt(q.get("watched_seconds"), 0, " s"),
+            }
+        )
     avail = record.get("player_qoe_available")
     print(f"Real player-side QoE — player_qoe_available = {avail}")
-    print(f"  source: real Chrome driven inside the shaped ns1 namespace; "
-          f"metrics per shared/models/README.md QoEMetrics\n")
+    print(
+        f"  source: real Chrome driven inside the shaped ns1 namespace; "
+        f"metrics per shared/models/README.md QoEMetrics\n"
+    )
     if pd is not None:
         df = pd.DataFrame(rows)
         display(df)
@@ -2595,11 +3144,14 @@ def load_dataset(per_app: bool = True) -> Any:
             "bandwidth_mbps": cfg.get("bandwidth_mbps"),
             "latency_ms": cfg.get("latency_ms"),
             "loss_pct": cfg.get("loss_pct"),
-            "aqm": cfg.get("aqm"), "cca": cfg.get("cca"),
+            "aqm": cfg.get("aqm"),
+            "cca": cfg.get("cca"),
             "shaping_verified": ns.get("shaping_verified"),
             "workflow_ok": r.get("workflow_ok"),
-            "player_qoe": r.get("player_qoe_available",
-                                r.get("limitations", {}).get("player_qoe_available")),
+            "player_qoe": r.get(
+                "player_qoe_available",
+                r.get("limitations", {}).get("player_qoe_available"),
+            ),
         }
         pas = r.get("per_app_stats") or {}
         if per_app and pas:
@@ -2607,56 +3159,105 @@ def load_dataset(per_app: bool = True) -> Any:
                 direction = (st.get("plotted_directions") or ["download"])[0]
                 d = st.get(direction) or {}
                 pq = (r.get("player_qoe") or {}).get(app) or {}
-                flat.append({**base, "app": app, "direction": direction,
-                             # real player-side QoE (null = not measurable)
-                             "qoe_status": pq.get("status"),
-                             "resolution_p": pq.get("video_resolution_p"),
-                             "startup_ms": pq.get("video_startup_time_ms"),
-                             "rebuffers": pq.get("rebuffer_events"),
-                             "rebuffer_ms": pq.get("rebuffer_duration_ms"),
-                             "dropped_pct": pq.get("dropped_frame_pct"),
-                             "fps": pq.get("frame_rate_fps"),
-                             "bitrate_mbps": pq.get("mean_bitrate_mbps"),
-                             "avg_throughput_mbps": d.get("avg_throughput_mbps"),
-                             "peak_throughput_mbps": d.get("peak_throughput_mbps"),
-                             "p95_throughput_mbps": d.get("p95_throughput_mbps"),
-                             "total_mb": d.get("total_mb"),
-                             "stall_seconds": d.get("stall_seconds"),
-                             "delivered_fraction": d.get("delivered_fraction"),
-                             "classification": st.get("classification"),
-                             "attribution": st.get("attribution_method")})
+                flat.append(
+                    {
+                        **base,
+                        "app": app,
+                        "direction": direction,
+                        # real player-side QoE (null = not measurable)
+                        "qoe_status": pq.get("status"),
+                        "resolution_p": pq.get("video_resolution_p"),
+                        "startup_ms": pq.get("video_startup_time_ms"),
+                        "rebuffers": pq.get("rebuffer_events"),
+                        "rebuffer_ms": pq.get("rebuffer_duration_ms"),
+                        "dropped_pct": pq.get("dropped_frame_pct"),
+                        "fps": pq.get("frame_rate_fps"),
+                        "bitrate_mbps": pq.get("mean_bitrate_mbps"),
+                        "avg_throughput_mbps": d.get("avg_throughput_mbps"),
+                        "peak_throughput_mbps": d.get("peak_throughput_mbps"),
+                        "p95_throughput_mbps": d.get("p95_throughput_mbps"),
+                        "total_mb": d.get("total_mb"),
+                        "stall_seconds": d.get("stall_seconds"),
+                        "delivered_fraction": d.get("delivered_fraction"),
+                        "classification": st.get("classification"),
+                        "attribution": st.get("attribution_method"),
+                    }
+                )
         else:
             # Pre-convention run with no per-app split: report the link totals and
             # say so, rather than passing them off as one app's throughput.
-            flat.append({**base, "app": base["apps"], "direction": "link-total",
-                         "avg_throughput_mbps": ns.get("avg_throughput_mbps"),
-                         "peak_throughput_mbps": ns.get("peak_throughput_mbps"),
-                         "p95_throughput_mbps": ns.get("p95_throughput_mbps"),
-                         "total_mb": ns.get("total_mb"),
-                         "stall_seconds": ns.get("stall_seconds"),
-                         "delivered_fraction": ns.get("delivered_fraction"),
-                         "classification": None, "attribution": "none"})
+            flat.append(
+                {
+                    **base,
+                    "app": base["apps"],
+                    "direction": "link-total",
+                    "avg_throughput_mbps": ns.get("avg_throughput_mbps"),
+                    "peak_throughput_mbps": ns.get("peak_throughput_mbps"),
+                    "p95_throughput_mbps": ns.get("p95_throughput_mbps"),
+                    "total_mb": ns.get("total_mb"),
+                    "stall_seconds": ns.get("stall_seconds"),
+                    "delivered_fraction": ns.get("delivered_fraction"),
+                    "classification": None,
+                    "attribution": "none",
+                }
+            )
     return pd.DataFrame(flat)
 
 
 __all__ = [
-    "SUBSTRATE", "NETGENT", "TELEMETRY", "ORCH", "RESULTS_ROOT",
-    "SHAPING_TOLERANCE", "STRICT_SHAPING", "CAPTURE_OVERHEAD_S",
-    "APP_REGISTRY", "BROWSER_INFRA_DOMAINS", "DISPLAY_NAMES",
-    "app_domains", "app_plot_directions", "app_color", "display_name",
-    "ExperimentConfig", "run_experiment", "run_direct", "run_intent",
-    "run_and_display", "run_sweep",
+    "SUBSTRATE",
+    "NETGENT",
+    "TELEMETRY",
+    "ORCH",
+    "RESULTS_ROOT",
+    "SHAPING_TOLERANCE",
+    "STRICT_SHAPING",
+    "CAPTURE_OVERHEAD_S",
+    "APP_REGISTRY",
+    "BROWSER_INFRA_DOMAINS",
+    "DISPLAY_NAMES",
+    "app_domains",
+    "app_plot_directions",
+    "app_color",
+    "display_name",
+    "ExperimentConfig",
+    "run_experiment",
+    "run_direct",
+    "run_intent",
+    "run_and_display",
+    "run_sweep",
     # capture reading + per-app attribution
-    "iter_capture", "attribute_capture", "classify_host",
-    "AppTraffic", "CaptureAttribution", "NetStats",
-    "analyze_pcap_netstats", "classify_traffic", "extract_app_qoe", "classify_qoe",
+    "iter_capture",
+    "attribute_capture",
+    "classify_host",
+    "AppTraffic",
+    "CaptureAttribution",
+    "NetStats",
+    "analyze_pcap_netstats",
+    "classify_traffic",
+    "extract_app_qoe",
+    "classify_qoe",
     # plots — per app, never combined
-    "generate_run_plots", "plot_app_throughput", "plot_app_qoe_summary",
+    "generate_run_plots",
+    "plot_app_throughput",
+    "plot_app_qoe_summary",
     "plot_app_qoe_timeseries",
-    "plot_qoe_vs_bandwidth", "plot_qoe_vs_latency", "plot_qoe_vs_concurrency",
-    "plot_throughput_vs_bandwidth", "plot_aqm_comparison", "plot_equity_comparison",
+    "plot_qoe_vs_bandwidth",
+    "plot_qoe_vs_latency",
+    "plot_qoe_vs_concurrency",
+    "plot_throughput_vs_bandwidth",
+    "plot_aqm_comparison",
+    "plot_equity_comparison",
     "plot_group_comparison",
-    "replot_run", "app_verdict", "rebuild_dataset_index", "show_player_qoe", "shared_repo_status",
-    "collect_player_qoe", "run_qoe_collectors", "ns1_netns_path",
-    "stack_health", "show_history", "load_dataset",
+    "replot_run",
+    "app_verdict",
+    "rebuild_dataset_index",
+    "show_player_qoe",
+    "shared_repo_status",
+    "collect_player_qoe",
+    "run_qoe_collectors",
+    "ns1_netns_path",
+    "stack_health",
+    "show_history",
+    "load_dataset",
 ]
