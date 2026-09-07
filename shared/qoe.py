@@ -50,6 +50,9 @@ _ADVANCE_RATIO = 0.20
 _ADVANCE_FLOOR_S = 0.02
 # Buffer at or under this many seconds corroborates a genuine rebuffer.
 _EMPTY_BUFFER_S = 0.5
+# A media-clock jump beyond this multiple of the wall-clock gap is a seek,
+# not watched playback (1.0 would be exactly real-time at 1x).
+_SEEK_FACTOR = 2.0
 # YouTube player state 3 == BUFFERING (direct vendor rebuffer signal).
 _YT_STATE_BUFFERING = 3
 _YT_STATE_ENDED = 0
@@ -289,13 +292,32 @@ def _summarize_html5(
     conn = [parse_connection_speed_mbps(x) for x in st]
     conn_vals = [c for c in conn if c is not None]
 
-    # Use the last *available* media clock: collectors routinely lose the final
-    # samples when the page is torn down mid-poll, and cur[-1] is then None.
+    # Watched time is the media clock's total FORWARD progress, not simply
+    # last-minus-first. A player resets currentTime to 0 when the video ends or
+    # loops, so a terminal reset made (last - first) negative and the clamp then
+    # reported 0.0 for a session that genuinely played — observed on Vimeo,
+    # which ran 2.71s -> 61.28s and reported 0.00 on its final sample.
+    #
+    # Summing per-interval advances is loop- and reset-safe. An advance larger
+    # than the wall-clock gap that produced it is a seek, not watching, so it is
+    # not credited; backward jumps are simply not counted.
     watched_s = None
-    cur_last = next((c for c in reversed(cur) if c is not None), None)
-    cur_first = next((c for c in cur[first_advance_idx:] if c is not None), None)
-    if cur_first is not None and cur_last is not None:
-        watched_s = round(max(0.0, cur_last - cur_first), 2)
+    advanced = 0.0
+    counted = False
+    for i in range(max(1, first_advance_idx), n):
+        a, b = cur[i - 1], cur[i]
+        if a is None or b is None:
+            continue
+        delta = b - a
+        if delta <= 0:
+            continue
+        dt = ts[i] - ts[i - 1]
+        if dt > 0 and delta > dt * _SEEK_FACTOR:
+            continue  # a jump forward: seek, not playback
+        advanced += delta
+        counted = True
+    if counted:
+        watched_s = round(advanced, 2)
 
     out: dict[str, Any] = {
         "app": spec.name,

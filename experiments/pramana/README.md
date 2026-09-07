@@ -203,6 +203,44 @@ the flag is recorded but does nothing.
 
 ---
 
+## Keeping the shaped link for the app under test
+
+Chrome fetches things the page never asked for. Measured on our own captures,
+those background downloads took a **median 65% of the shaped link** — up to
+~50% of a 10 Mbps link — competing directly with the video and confounding
+every per-app QoE number at exactly the tiers that matter. Two sources:
+
+| host | what it is |
+|---|---|
+| `optimizationguide-pa.googleapis.com` | Chrome's ML optimization-guide model |
+| `edgedl.me.gvt1.com` | component updater (plain HTTP, hardcoded IP, no DNS/SNI) |
+
+The collector now disables both at the source (`--disable-component-update`,
+`--disable-features=OptimizationHints,...`, `--disable-background-networking`)
+with `--host-resolver-rules` pinned to those two hostnames as a safety net.
+Nothing blocks the app's own CDNs, and playback and QoE reading are untouched.
+
+After the fix, background traffic is **1–3% of the shaped download** and the app
+under test is **81–94%** of it. Verify on your own capture:
+
+```bash
+tcpdump -r <run>/capture.pcap -nn 'host optimizationguide-pa.googleapis.com' | wc -l   # expect 0
+```
+
+> **This lives in the collector image.** If you built `video-qoe-collector:latest`
+> before this change, **rebuild it** (step 2) — otherwise the container runs the
+> old `collect.py`, the background traffic returns, and your numbers are
+> confounded without any warning. A run that shows tens of MB of
+> `browser_infra` in its per-app split is the symptom.
+
+**Throughput is reported for the shaped direction.** `network_stats`
+`avg`/`peak`/`p95` are download-only, because the cap shapes download; summing
+both directions and comparing that against a download cap reported shaping
+violations that the packets did not support. `total_mb` remains the whole
+capture, both directions.
+
+---
+
 ## Validating output
 
 Every run should be checked before it is used as a result. The validator is

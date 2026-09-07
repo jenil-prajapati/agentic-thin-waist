@@ -336,6 +336,29 @@ def build_driver(user_data_dir: str | None = None):
         # autoplay policy and the player sits paused at t=0 forever (found via
         # live debugging - not in the netgent-dev reference recipe).
         "--autoplay-policy=no-user-gesture-required",
+        # ── keep the shaped link for the app under test ──────────────────────
+        # Measured on our own captures: Chrome's own background fetches took a
+        # median 65% of the shaped download (up to ~50% of a 10 Mbps link),
+        # competing directly with the video and confounding every per-app QoE
+        # number. Two sources, both of which the page never requested:
+        #   optimizationguide-pa.googleapis.com  - ML model download (HTTPS)
+        #   edgedl.me.gvt1.com                   - component updater (HTTP:80,
+        #                                          hardcoded IP, no DNS/SNI)
+        # These flags stop them at the source; the host-resolver rules below are
+        # only a safety net. Nothing here touches playback or how QoE is read.
+        "--disable-features=OptimizationHints,OptimizationGuideModelDownloading,"
+        "OptimizationGuideModelPushNotifications,OptimizationTargetPrediction",
+        "--disable-component-update",
+        "--disable-background-networking",
+        "--disable-domain-reliability",
+        "--no-first-run",
+        "--no-default-browser-check",
+        # Safety net, pinned to the two offending hostnames ONLY. Deliberately
+        # not a wildcard on gvt1.com: r*.sn-*.gvt1.com serves YouTube media and
+        # must keep resolving normally.
+        "--host-resolver-rules=MAP optimizationguide-pa.googleapis.com 127.0.0.1,"
+        "MAP edgedl.me.gvt1.com 127.0.0.1,"
+        "MAP update.googleapis.com 127.0.0.1",
     ]
     chromium_arg = ",".join(args)
     kwargs: dict[str, Any] = dict(

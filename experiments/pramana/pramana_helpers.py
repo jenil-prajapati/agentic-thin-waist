@@ -59,6 +59,7 @@ Public API (``from pramana_helpers import *``):
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import math
 import os
@@ -1024,6 +1025,16 @@ def _l3(linktype: int, data: bytes) -> tuple[Optional[int], bytes]:
     return None, b""
 
 
+def _is_private_ip(ip: str) -> bool:
+    """RFC1918/loopback/link-local test. String prefixes get this wrong:
+    "172.2" also matches public 172.2.x.x and 172.200.x.x."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return addr.is_private or addr.is_loopback or addr.is_link_local
+
+
 def _parse_ip(fam: int, buf: bytes):
     """Return (src, dst, proto, l4_bytes) or None."""
     if fam == 4:
@@ -1492,24 +1503,53 @@ def analyze_pcap_netstats(pcap: Path, cap_mbps: float) -> NetStats:
     """Compute throughput stats from the capture and verify the cap was respected."""
     if not pcap.exists():
         return NetStats()
-    packets = _read_capture(str(pcap))
+    # One pass, keeping the link type so each packet's direction is known: the
+    # cap shapes the DOWNLOAD direction, so everything compared against it must
+    # be download-only. Summing both directions and testing that against a
+    # download cap produced ~20 spurious SHAPING failures, while the packets
+    # showed the shaper never let download exceed the cap by more than ~3%.
+    packets: list = []
+    ip_pkts: list[tuple] = []  # (pkt, src, dst)
+    endpoint_pkts: dict[str, int] = defaultdict(int)
+    for ts_, ol, lt, data in iter_capture(str(pcap)):
+        pkt = _Pkt(ts_, ol, data)
+        packets.append(pkt)
+        fam, l3 = _l3(lt, data)
+        if fam is None:
+            continue
+        parsed = _parse_ip(fam, l3)
+        if parsed is None:
+            continue
+        src, dst, _proto, _l4 = parsed
+        ip_pkts.append((pkt, src, dst))
+        endpoint_pkts[src] += 1
+        endpoint_pkts[dst] += 1
     if not packets:
         return NetStats()
 
     total_bytes = sum(p.orig_len for p in packets)
     ts = [p.ts for p in packets if p.ts]
     duration = (max(ts) - min(ts)) if len(ts) > 1 else 0.0
+
+    # Local side = the endpoint the capture sits behind. Prefer a private
+    # address; fall back to the busiest endpoint, as attribution does.
+    local = {ip for ip in endpoint_pkts if _is_private_ip(ip)}
+    if not local and endpoint_pkts:
+        local = {max(endpoint_pkts, key=lambda k: endpoint_pkts[k])}
+    down = [pkt for pkt, _src, dst in ip_pkts if dst in local]
+    down_bytes = sum(p.orig_len for p in down)
+
     ns = NetStats(
         packets=len(packets),
         duration_s=round(duration, 2),
-        total_mb=round(total_bytes / 1e6, 2),
+        total_mb=round(total_bytes / 1e6, 2),  # whole capture, both directions
         avg_throughput_mbps=(
-            round(total_bytes * 8 / max(duration, 0.001) / 1e6, 3) if duration else None
+            round(down_bytes * 8 / max(duration, 0.001) / 1e6, 3) if duration else None
         ),
     )
 
-    # per-second throughput series for peak / p95 / stalls
-    _, rates = _throughput_series(packets, 1.0)
+    # per-second throughput series for peak / p95 / stalls — shaped direction
+    _, rates = _throughput_series(down or packets, 1.0)
     if rates:
         srt = sorted(rates)
         ns.peak_throughput_mbps = round(max(rates), 3)
